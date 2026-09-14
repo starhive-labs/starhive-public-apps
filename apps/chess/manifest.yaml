@@ -1,0 +1,93 @@
+# Chess — phase 1: correspondence play.
+#
+# A game is one native object carrying its own position. Everything the app shows is derived from
+# that object, so Starhive's search, permissions and reporting apply to games for free.
+#
+# See `docs/chess-app-investigation.md` in the starhive-development repo for why the model is shaped
+# this way — in particular why turn is derived rather than stored, and why `moves` is the one field
+# that cannot be added later.
+app:
+  key: com.starhive.apps.chess
+  version: 0.32.0
+  description: Correspondence chess for your workspace. Every game is a native Starhive object.
+  icon: extension
+
+# One bundle, four surfaces. The app reads `context.slot` and renders the matching screen.
+modules:
+  globalPage:
+    - { key: lobby, title: Chess, icon: extension, route: / }
+  # The game *is* an object, so opening it in Starhive shows the board on it.
+  objectPanel:
+    - { key: board, title: Board, route: / }
+  widget:
+    - { key: yourmove, title: Your move, route: / }
+  # No params: the block picks its game in place and remembers it with `useMacroState()`. A declared
+  # `gameId` param would mean pasting a UUID into the insert dialog.
+  macro:
+    - { key: board, title: Chess board, route: /, height: 480 }
+
+data:
+  # `open`, not the default `restricted`: every read an app makes runs as the viewer, so with
+  # `restricted` everyone but the installer gets a 403 on every call and no board ever loads.
+  space: { key: chess, name: Chess, access: open }
+
+  workflows:
+    - key: game
+      name: Game
+      states:
+        - { key: open, name: Open challenge, initial: true }
+        - { key: playing, name: In play }
+        - { key: finished, name: Finished, end: true }
+        # A challenge nobody took. Distinct from `finished`, which means a game was played: a
+        # cancelled game has no result and never had a second player.
+        - { key: cancelled, name: Cancelled, end: true }
+      transitions:
+        - { name: Seat taken, from: open, to: playing }
+        - { name: Start, from: open, to: playing }
+        - { name: Finish, from: playing, to: finished }
+        - { name: Cancel, from: open, to: cancelled }
+
+  types:
+    - key: game
+      name: Chess game
+      labelAttribute: title
+      attributes:
+        - { key: title, name: Title, type: TEXT, required: true }
+        # Seats. There is no way for an app to list workspace users, so these are never picked from a
+        # dropdown — a player writes their own id into the empty one by claiming it.
+        - { key: white, name: White, type: USER }
+        - { key: black, name: Black, type: USER }
+        # The whole position: side to move, castling rights, en passant, both clocks. Turn is derived
+        # from this, which is what keeps a move to a single write.
+        - { key: fen, name: Position, type: TEXT, required: true }
+        # Space-separated UCI. The one field that cannot be backfilled: a game played without it can
+        # never be analysed, and phase 2 is built on it.
+        - { key: moves, name: Moves, type: TEXT }
+        # PGN-standard values, not prose. Tournament scoring reads arithmetic off this field and PGN
+        # export is a string concat; renaming OPTION labels later means migrating every stored value.
+        - { key: result, name: Result, type: OPTION, config: { options: ["*", "1-0", "0-1", "1/2-1/2"] } }
+        # The status workflow is a *projection*, never a source of truth. A workflow is provisioned
+        # once and never updated (ProvisioningService: "already provisioned (upgrade)"), so a state
+        # added in a later manifest version does not exist on an install that predates it — which is
+        # why cancellation lives in an attribute, where an upgrade does add it.
+        - { key: status, name: Status, type: WORKFLOW, workflow: game }
+        - { key: cancelled, name: Cancelled, type: BOOLEAN }
+        # Who the other side is. A computer game has an empty `black` seat that is not an open
+        # invitation, so the distinction cannot be derived from the seats alone.
+        - { key: opponent, name: Opponent, type: OPTION, config: { options: [Human, Computer] } }
+        # The rating the computer is aiming at, for a computer game. See `src/engine/levels.ts` for
+        # what the app can actually deliver against it.
+        - { key: level, name: Level, type: DECIMAL }
+        # Post-game analysis, computed once and kept: one centipawn evaluation per position the game
+        # passed through, White-relative, comma-separated. `analysisEngine` records what produced
+        # them, so a better engine later knows which games are worth re-running.
+        - { key: evals, name: Evaluations, type: TEXT }
+        - { key: analysisEngine, name: Analysis engine, type: TEXT }
+        # Clocks. `timeControl` is the key from src/chess/timeControl.ts (`3+2`, `1d`); the two
+        # millisecond counts are each side's remaining time as of the last move; `turnStartedAt` is
+        # when the side to move started thinking, as epoch milliseconds. Only the mover's clock is
+        # ever running, so these need writing once a move rather than continuously.
+        - { key: timeControl, name: Time control, type: TEXT }
+        - { key: whiteMs, name: White clock, type: DECIMAL }
+        - { key: blackMs, name: Black clock, type: DECIMAL }
+        - { key: turnStartedAt, name: Turn started, type: TEXT }

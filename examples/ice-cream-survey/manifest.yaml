@@ -1,0 +1,73 @@
+app:
+  # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
+  # via "Publish a new app" in the Starhive UI.
+  key: com.starhive.apps.demo.icecreamsurvey
+  version: 1.1.0
+  description: Survey people about ice cream. Each rating is a native object, so reporting is just Starhive.
+
+# Where the single bundle mounts. All four modules load the same entry (`/`); the
+# app reads `context.slot` from the bridge handshake to render the right screen.
+# The `widget` is the centerpiece — drop "Rate our ice cream" on any dashboard and
+# people can pick a flavor and tap a star rating without leaving the page.
+modules:
+  globalPage:
+    - { key: survey, title: Ice Cream Survey, route: / }
+  objectPanel:
+    - { key: flavor-feedback, title: Feedback, route: / }
+  widget:
+    - { key: rate-ice-cream, title: Rate our ice cream, route: / }
+  settingsPage:
+    - { key: settings, title: Ice Cream Survey, route: / }
+
+# Admin settings, stored on the install (read via starhive.config.get()).
+# `flavorType` defaults to the app's own `flavor` type (resolved to its provisioned typeId on
+# install). The settingsPage lets an admin point responses at any other type — but only before any
+# response exists, since changing it would orphan existing flavor references.
+config:
+  - { key: flavorType, name: Flavor type, type: typeRef, default: flavor }
+  # Star scale (drives the Rating widget's star count and validation). 5 = classic 1–5 stars.
+  - { key: maxRating, name: Max rating, type: number, default: 5 }
+
+# What this app reads beyond the types it provisions for itself, and why.
+#
+# The setting below defaults to this app's own type, and its own types need no declaration — it owns
+# those. The declaration is what makes re-pointing the setting at one of the workspace's own types
+# work: without it the app may still *write* a reference to such an object and would be refused when
+# it read one back, which surfaces as a panel that quietly says it does not apply.
+#
+# `reason` is required, and is the developer's own words to the admin approving the install.
+scopes:
+  read:
+    - config: flavorType
+      reason: Reads the flavor a panel is opened beside, to check it is something that can be rated.
+
+# Provisioned into the workspace on install. The app reads/writes these by the
+# attribute NAMES below (see src/survey.ts → ATTR).
+data:
+  space: { key: ice-cream-survey, name: Ice Cream Survey }
+  types:
+    # A default "Flavor" type so there's something to rate out of the box.
+    - key: flavor
+      name: Flavor
+      labelAttribute: name
+      attributes:
+        - { key: name, name: Name, type: TEXT, required: true }
+    - key: response
+      name: Survey Response
+      # The type's display label. Point it at one of the attributes below (by key); it must be a TEXT
+      # attribute. Responses then show their comment as the label.
+      labelAttribute: comment
+      attributes:
+        # A reference to the flavor type — defaults to the app's `flavor` type, switchable in settings.
+        - { key: flavor,     name: Flavor,     type: REFERENCE, targetType: "${config.flavorType}", cardinality: one, required: true }
+        - { key: rating,     name: Rating,     type: DECIMAL, required: true }
+        - { key: comment,    name: Comment,    type: TEXT }
+        - { key: respondent, name: Respondent, type: TEXT }
+        - { key: date,       name: Date,       type: DATE, required: true }
+  # A few default flavors so the survey works immediately.
+  seed:
+    flavor:
+      - { name: Vanilla }
+      - { name: Chocolate }
+      - { name: Strawberry }
+      - { name: Mint Choc Chip }

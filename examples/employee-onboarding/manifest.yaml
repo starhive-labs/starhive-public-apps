@@ -1,0 +1,132 @@
+app:
+  # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
+  # via "Publish a new app" in the Starhive UI.
+  key: com.starhive.apps.demo.onboarding
+  version: 1.4.0
+  description: Run structured employee onboarding in Starhive. Each task is a native object, so checklists, progress and reporting are just Starhive.
+
+# Where the single bundle mounts. Every module loads the same entry (`/`); the
+# app reads `context.slot` from the bridge handshake to render the right screen.
+modules:
+  globalPage:
+    - { key: onboarding, title: Employee Onboarding, route: / }
+  objectPanel:
+    - { key: hire-tasks, title: Onboarding, route: / }
+  widget:
+    - { key: my-onboarding, title: My onboarding, route: / }
+  settingsPage:
+    - { key: settings, title: Employee Onboarding, route: / }
+  # A block a writer drops into a page from the editor's `/` menu. `params` are the macro's
+  # arguments — asked once on insert and stored on the block — so the same macro can show one hire's
+  # checklist on their onboarding page and everyone's on the team page. `height` holds the space
+  # until the app reports its own (see src/slots/Macro.tsx → useAutoResize).
+  macro:
+    - key: checklist
+      title: Onboarding checklist
+      route: /
+      height: 200
+      params:
+        - { key: hire, name: New hire, type: text, help: Only this hire's tasks. Blank shows everyone. }
+        - { key: status, name: Status, type: select, options: [Any, To do, In progress, Done], default: Any }
+        - { key: interactive, name: Let readers change status, type: boolean, default: true }
+
+# Systems outside Starhive this app talks to. Declaring them is what makes them reachable at all -
+# and it is what an admin is shown before installing. An admin connects each one under
+# Settings -> Apps -> Connect; until then, calls to it fail and bridge.remotes() reports it
+# unconfigured (see src/PublicHolidays.tsx).
+remotes:
+  # A public calendar: no credential, so connecting it is one click.
+  - key: holidays
+    name: Public holiday calendar
+    baseUrl: https://date.nager.at
+    reason: Looks up public holidays so onboarding plans around days off.
+    access: [proxy]
+  # A system that wants a key, to show where the credential lives: Starhive stores it and writes it
+  # onto the request, so the app never holds it. httpbin answers 200 only if the header arrived.
+  - key: echo
+    name: Credential check (httpbin)
+    baseUrl: https://httpbin.org
+    reason: Demonstrates that Starhive, not the app, holds the credential.
+    access: [proxy]
+  # A system whose address only the customer knows. The app cannot name it - it names the shape it
+  # will accept, and an admin gives the rest under Settings -> Apps -> Manage -> Connect. Pointed at
+  # httpbin here so the demo has something real to reach; a genuine app would bound this to its own
+  # vendor's hosts (e.g. '*.acme-hr.com').
+  - key: hr-system
+    name: Your HR system
+    reason: Looks up the employee record a hire was created from. The address is yours to give.
+    access: [proxy]
+    configurable:
+      # An exact host and its subdomains: '*.httpbin.org' alone would not match httpbin.org itself.
+      patterns: [httpbin.org, '*.httpbin.org']
+
+# Admin settings, stored on the install (read via starhive.config.get()).
+# `newHireType` defaults to the app's own `newHire` type (resolved to its provisioned typeId on
+# install). The settingsPage lets an admin point onboarding tasks at any other type (e.g. an existing
+# "Employee" type) — but only before any task exists, since changing it would orphan existing refs.
+config:
+  - { key: newHireType, name: New hire type, type: typeRef, default: newHire }
+  - { key: defaultDueDays, name: Default due in (days), type: number, default: 7 }
+
+# What this app reads beyond the types it provisions for itself, and why.
+#
+# The setting below defaults to this app's own type, and its own types need no declaration — it owns
+# those. The declaration is what makes re-pointing the setting at one of the workspace's own types
+# work: without it the app may still *write* a reference to such an object and would be refused when
+# it read one back, which surfaces as a panel that quietly says it does not apply.
+#
+# `reason` is required, and is the developer's own words to the admin approving the install.
+scopes:
+  read:
+    - config: newHireType
+      reason: Reads the new hire a panel is opened beside, to check onboarding tasks belong to them.
+
+# Provisioned into the workspace on install. The app reads/writes these by the
+# attribute NAMES below (see src/onboarding.ts → ATTR).
+data:
+  space: { key: employee-onboarding, name: Employee Onboarding }
+  # A workflow for a task's status. New tasks enter at `todo`; the WORKFLOW `Status` attribute below
+  # binds to it. The app moves tasks itself: it asks the bridge which transitions are available from
+  # the state a task is in, then writes the target state and that transition together (src/StatusMenu.tsx).
+  workflows:
+    - key: taskStatus
+      name: Onboarding status
+      states:
+        - { key: todo,       name: To do, initial: true }
+        - { key: inProgress, name: In progress }
+        - { key: done,       name: Done, end: true }
+      transitions:
+        - { name: Start,    from: todo,       to: inProgress }
+        - { name: Complete, from: inProgress, to: done }
+        - { name: Reopen,   from: done,       to: todo }
+  types:
+    # A default "New Hire" type so onboarding works against something out of the box.
+    - key: newHire
+      name: New Hire
+      labelAttribute: name
+      attributes:
+        - { key: name,       name: Name,       type: TEXT, required: true }
+        - { key: startDate,  name: Start date, type: DATE }
+        - { key: department, name: Department, type: TEXT }
+    - key: onboardingTask
+      name: Onboarding Task
+      # The type's display label — point it at a TEXT attribute (by key). Tasks show their title.
+      labelAttribute: title
+      attributes:
+        - { key: title,   name: Title,    type: TEXT, required: true }
+        # Workflow-driven status, bound to the `taskStatus` workflow above.
+        - { key: status,  name: Status,   type: WORKFLOW, workflow: taskStatus }
+        - { key: dueDate, name: Due date, type: DATE }
+        # A reference to the new-hire type — defaults to the app's `newHire` type, switchable in settings.
+        - { key: newHire, name: New hire, type: REFERENCE, targetType: "${config.newHireType}", cardinality: one }
+        - { key: notes,   name: Notes,    type: TEXT }
+  # A sample hire + a standard onboarding checklist so the app shows content immediately. Tasks start
+  # with no workflow status; the task list moves them (see src/StatusMenu.tsx) by naming a transition.
+  seed:
+    newHire:
+      - { name: Sample Hire, department: Engineering }
+    onboardingTask:
+      - { title: Set up laptop and accounts }
+      - { title: Add to payroll and benefits }
+      - { title: Team intro meeting }
+      - { title: Read the team handbook }

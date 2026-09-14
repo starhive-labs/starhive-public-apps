@@ -1,0 +1,86 @@
+app:
+  # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
+  # via "Publish a new app" in the Starhive UI.
+  key: com.starhive.apps.demo.timereporting
+  version: 1.3.0
+  description: Log time against any Starhive object. Entries are native objects, so reporting is just Starhive.
+
+# Where the single bundle mounts. Every module loads the same entry (`/`); the
+# app reads `context.slot` from the bridge handshake to render the right screen.
+modules:
+  globalPage:
+    - { key: log-time, title: Time Reporting, route: / }
+  objectPanel:
+    - { key: object-time, title: Time, route: / }
+  widget:
+    - { key: my-timesheet, title: My timesheet, route: / }
+  settingsPage:
+    - { key: settings, title: Time Reporting, route: / }
+  # A block a writer inserts into a page from the editor's `/` menu, rendered live for every reader
+  # as that reader. `params` are this block's arguments — the host draws the insert dialog from them
+  # (the app isn't running yet) and hands the answers back as `context.macroParams`. They are NOT
+  # `config`: config is one set of admin settings per install, params are per block on the page.
+  # `height` only holds the space until the app reports its own (src/slots/MacroPage.tsx).
+  macro:
+    - key: time-summary
+      title: Logged time
+      route: /
+      height: 200
+      params:
+        - key: period
+          name: Period
+          type: select
+          options: [week, month, all]
+          default: week
+        - key: workItem
+          name: Work item
+          help: Leave empty to include every work item.
+          type: text
+
+# Admin settings, stored on the install (read via starhive.config.get()).
+# `workItemType` defaults to the app's own `workItem` type (resolved to its provisioned typeId on
+# install). The settingsPage lets an admin point it at any other type — but only before any time
+# log exists, since changing it would orphan existing work-item references.
+config:
+  - { key: workItemType, name: Work item type, type: typeRef, default: workItem }
+  - { key: roundingMinutes, type: number, default: 0 }
+
+# What this app reads beyond the types it provisions for itself, and why.
+#
+# The setting below defaults to this app's own type, and its own types need no declaration — it owns
+# those. The declaration is what makes re-pointing the setting at one of the workspace's own types
+# work: without it the app may still *write* a reference to such an object and would be refused when
+# it read one back, which surfaces as a panel that quietly says it does not apply.
+#
+# `reason` is required, and is the developer's own words to the admin approving the install.
+scopes:
+  read:
+    - config: workItemType
+      reason: Reads the work item a panel is opened beside, to check time can be logged against it.
+
+# Provisioned into the workspace on install. The app reads/writes these by the
+# attribute NAMES below (see src/timeEntry.ts → ATTR).
+data:
+  space: { key: time-reporting, name: Time Reporting }
+  types:
+    # A default "Work Item" type so time can be logged against something out of the box.
+    - key: workItem
+      name: Work Item
+      labelAttribute: title
+      attributes:
+        - { key: title, name: Title, type: TEXT, required: true }
+    - key: timeEntry
+      name: Time Entry
+      # The type's display label. Point it at one of the attributes below (by key); it must be a TEXT
+      # attribute. Entries then show their note as the label.
+      labelAttribute: notes
+      attributes:
+        - { key: date,     name: Date,      type: DATE, required: true }
+        - { key: hours,    name: Hours,     type: DECIMAL, required: true }
+        # A reference to the work item type — defaults to the app's `workItem` type, switchable in settings.
+        - { key: workItem, name: Work Item, type: REFERENCE, targetType: "${config.workItemType}", cardinality: one }
+        - { key: notes,    name: Notes,     type: TEXT }
+  # One default work item so logging works immediately.
+  seed:
+    workItem:
+      - { title: General }

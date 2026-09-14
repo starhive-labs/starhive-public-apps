@@ -1,0 +1,21 @@
+# Excalidraw for Starhive — draw a diagram inside a page.
+#
+# The app is one macro: a block a writer inserts from the editor's `/` menu. The drawing lives on that
+# block, in the page, saved with `macro.setState` — so it is copied when the page is copied and
+# restored when an old version of the page is restored, and the app provisions nothing in the
+# workspace.
+app:
+  key: com.starhive.apps.excalidraw
+  version: 0.1.1
+  description: Draw diagrams in a page with Excalidraw. Each block holds its own drawing, stored in the page.
+
+modules:
+  # Only the macro slot: this app exists to put a drawing in someone's prose. `height` holds the
+  # block's space for the first paint; after that the app reports its own via `useAutoResize()`.
+  macro:
+    - key: diagram
+      title: Diagram
+      route: /
+      height: 320
+      # No params: the block *is* the diagram. A macro that declares none is inserted straight into
+      # the page with no dialog in the way, which is what drawing something should feel like.

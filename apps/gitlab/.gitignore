@@ -1,0 +1,6 @@
+node_modules/
+build/
+*.tsbuildinfo
+
+# Compiled output of `npm test`.
+.branch-name-check/

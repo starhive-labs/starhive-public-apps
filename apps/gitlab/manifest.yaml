@@ -1,0 +1,124 @@
+# GitLab for Starhive — the merge requests and branches behind a work item.
+#
+# The app stores a `Code Link` object of its own for every connection, in its own space, holding a
+# REFERENCE out to the work item. It may read that work item back — but only because of this
+# reference: the host opens the types an app's own config-bound references point at, and nothing
+# else. That read is what the key search rests on, so the `scopes` block below declares it.
+#
+# Everything shown from GitLab is fetched live, on the open. Apps have no background execution and
+# no inbound webhook, so there is nothing to keep a stored copy fresh — see README.
+app:
+  key: com.starhive.apps.gitlab
+  version: 0.30.0
+  description: See the GitLab merge requests and branches behind a work item, and start new ones as you go.
+
+modules:
+  # The product. Shows this object's links, live from GitLab, and takes new ones.
+  objectPanel:
+    # `showFor` keeps the tab off objects this app does not understand. Bound to the same setting the
+    # link's reference is, so the panel is offered for exactly the type the app is allowed to read —
+    # two answers to "which type" is how a tab appears on an object the app then refuses. Subtypes
+    # count, the way they do for the reference and for the read scope.
+    - { key: gitlab, title: GitLab, route: /, showFor: "${config.workItemType}" }
+  # A rollup over the app's own link objects. No egress at all: it keeps working when the token is
+  # unconnected or GitLab is down.
+  globalPage:
+    - { key: dev-status, title: GitLab, route: / }
+  settingsPage:
+    - { key: settings, title: GitLab, route: / }
+
+# The one external system this app reaches, and the only one it ever will: this app is GitLab, and
+# GitHub or Bitbucket would each be an app of their own — which is how someone searching a marketplace
+# for "GitLab" finds it.
+#
+# `baseUrl` is fixed at gitlab.com. A self-managed GitLab needs a `configurable` block, and the host
+# patterns a customer's own address would have to match cannot be known at publish time — that gap is
+# open on the platform, not something this app can close.
+remotes:
+  - key: gitlab
+    name: GitLab
+    baseUrl: https://gitlab.com
+    reason: Reads the merge requests, branches and commits for the work items people link.
+    access: [proxy]
+
+# Admin settings, stored on the install (read via starhive.config.get()).
+config:
+  # Which type a link may point at. Defaults to the app's own `workItem` type; an admin points it at
+  # the type their team actually plans in. Changing it after links exist would orphan them, so the
+  # settings page locks it once anything is linked.
+  - { key: workItemType, name: Work item type, type: typeRef, default: workItem }
+  # The `group/project` paths on gitlab.com this workspace works in, one per line.
+  #
+  # A list rather than one, because a workspace plans in one place and commits in several: a work
+  # item here might be a change to the client, the backend or the apps repo. Only two things ever
+  # needed a single answer — which project a new branch is created in, and which projects the app
+  # page summarises — and both are better asked than assumed. Linking by URL never needed this at
+  # all: the project comes out of the URL.
+  - { key: projects, name: GitLab projects, type: text, multi: true, help: "One group/project per line, as it appears in the project's URL" }
+  # How a branch name is built, as a template. A template rather than a prefix because teams
+  # disagree about more than the folder — some want no key, some want the label first — and every
+  # one of those is the same values in a different order.
+  #
+  # The default is `{initials}/{label}` — whose it is and what it is about, the two things true of
+  # every type. A key is the better name where there is one, but a SEQUENCE is not something a type
+  # has by default, and a default that silently drops half of itself on the types that lack one is
+  # worse than one that never promised a key.
+  #
+  # `{initials}` is the person creating the branch, so one setting still gives each of them their
+  # own folder; a literal would put the whole team under one. `{key}` and `{label}` name a *role* —
+  # the type's SEQUENCE and whichever attribute it marks isLabel — so a default template works on a
+  # type whose key is called `Key` and on one where it is called `Ref`. Every other token is looked
+  # up as an attribute of the work item by display name: `{Manufacturer}`, `{Serial number}`.
+  #
+  # A token in capitals gives its value in capitals: `{key}` is `star-123` and `{KEY}` is `STAR-123`.
+  # The template is the only place that can decide this — a sequence's value is whatever prefix the
+  # workspace generated, and there is no telling from here whether `HARDWARE-1` is an identifier a
+  # team writes in capitals or just what a type called Hardware produced.
+  #
+  # The older `branchPrefix` is still read for installs that set it, and upgraded to the template
+  # that produces the same names.
+  - { key: branchNaming, name: Branch naming, type: text, help: "The app draws this field itself — see src/slots/SettingsPage.tsx for the text an admin actually reads" }
+
+# What this app reads beyond its own types, and why. Declared rather than left to be inferred from
+# where a reference happens to point: an app should be able to say what customer data it needs
+# without that being a side effect of its data model, and an admin approving the install is owed the
+# reason in the developer's own words.
+scopes:
+  read:
+    - config: workItemType
+      reason: >-
+        Reads the work item a branch belongs to. Its name goes into the branch name, and its key is
+        what GitLab is searched for to find the branches and merge requests already behind it.
+
+data:
+  # `open`: every workspace user may read this space. The panel is offered to everyone who can see a
+  # work item, and every read of the app's own link objects runs as the viewer — a restricted space
+  # would let the installer use the app and refuse everybody else with a 403 on each request.
+  space: { key: gitlab, name: GitLab, access: open }
+  types:
+    # A minimal work item type, so the app has something to link to on a workspace that has no
+    # planning type yet. Most installs will point `workItemType` at their own type instead.
+    - key: workItem
+      name: Work Item
+      labelAttribute: title
+      attributes:
+        - { key: title, name: Title, type: TEXT, required: true }
+    - key: codeLink
+      name: Code Link
+      labelAttribute: title
+      attributes:
+        - { key: title,    name: Title,     type: TEXT, required: true }
+        # The link itself. Points at whatever `workItemType` resolves to — including a type in
+        # another space, which the app may reference without any claim on that space (proven by
+        # CrossSpaceReferenceTest in space-manager).
+        - { key: workItem, name: Work item, type: REFERENCE, targetType: "${config.workItemType}", cardinality: one }
+        - { key: project,  name: Project,   type: TEXT, required: true }
+        # merge-request | branch | commit
+        - { key: kind,     name: Kind,      type: TEXT, required: true }
+        # The iid, branch name or sha — whatever identifies it within the project.
+        - { key: ref,      name: Ref,       type: TEXT, required: true }
+        - { key: url,      name: URL,       type: TEXT }
+        # What GitLab last said. Rendered when a live read fails, so a panel says something true
+        # rather than nothing.
+        - { key: state,    name: State,     type: TEXT }
+        - { key: author,   name: Author,    type: TEXT }
