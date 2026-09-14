@@ -61,9 +61,3 @@ used — so a surprising result is visible rather than silent.
 The `starhive app create` template is vendored the same way and keeps its own copy of this script in
 the CLI repo, because the template lives there. When the SDK packages are published, both copies go
 away together, along with the vendored source and the aliases.
-
-## Adding an app
-
-Scaffold it with `starhive app create`, drop it under `apps/` (or `examples/` if it is there to be
-read rather than run), and add its path in two places: `TARGETS` in `scripts/sync-sdk.sh` so its
-vendored SDK stays in step, and the `APP` matrix in `.gitlab-ci.yml` so CI builds it.
