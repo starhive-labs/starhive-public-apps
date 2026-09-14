@@ -67,9 +67,3 @@ away together, along with the vendored source and the aliases.
 Scaffold it with `starhive app create`, drop it under `apps/` (or `examples/` if it is there to be
 read rather than run), and add its path in two places: `TARGETS` in `scripts/sync-sdk.sh` so its
 vendored SDK stays in step, and the `APP` matrix in `.gitlab-ci.yml` so CI builds it.
-
-## CI
-
-`.gitlab-ci.yml` runs on merge requests and on `main`. One job per app (`build-app: [apps/excalidraw]`
-and so on) runs `npm ci`, `npm run tscheck` and `npm run build`, and keeps each app's `build/` as an
-artifact for a week. Nothing is deployed from CI; `npm run deploy` stays a local, token-holding step.
