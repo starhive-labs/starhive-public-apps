@@ -2,7 +2,7 @@ app:
   # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
   # via "Publish a new app" in the Starhive UI.
   key: com.starhive.apps.demo.icecreamsurvey
-  version: 1.1.0
+  version: 1.1.1
   description: Survey people about ice cream. Each rating is a native object, so reporting is just Starhive.
 
 # Where the single bundle mounts. All four modules load the same entry (`/`); the

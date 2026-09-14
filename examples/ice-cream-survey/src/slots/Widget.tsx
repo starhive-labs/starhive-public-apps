@@ -1,6 +1,6 @@
 import { Group, Stack, Text } from '@mantine/core'
 import { useAttributes, useConfig, useObjectQuery } from '@starhive/bridge'
-import { Card, Rating } from '@starhive/ui'
+import { Rating } from '@starhive/ui'
 
 import { RateForm } from '../RateForm'
 import { ATTR, averageRating, readConfig, RESPONSE_KEY } from '../survey'
@@ -41,18 +41,22 @@ function Summary() {
 /**
  * The centerpiece: a compact "Rate our ice cream" card for any dashboard. People pick a flavor,
  * tap a star rating and submit without leaving the page; the header shows the running average.
+ *
+ * Deliberately not wrapped in a `Card`. The dashboard cell around this iframe already paints the
+ * background, border and radius the person configured under the widget's appearance, and hands us a
+ * transparent ground so it shows through (see `useApplyHostTheme`). A `Card` here would draw a second
+ * frame — its own border and shadow — inside the one they chose, which reads as the appearance being
+ * ignored. Padding is all the widget adds; the frame is the host's.
  */
 export function Widget() {
   const { key, reload } = useReloadAfterIndex()
   return (
-    <Card>
-      <Stack gap="sm">
-        <Group justify="space-between" align="center">
-          <Text fw={600}>Rate our ice cream</Text>
-          <Summary key={key} />
-        </Group>
-        <RateForm compact onSubmitted={reload} />
-      </Stack>
-    </Card>
+    <Stack gap="sm" p="sm">
+      <Group justify="space-between" align="center">
+        <Text fw={600}>Rate our ice cream</Text>
+        <Summary key={key} />
+      </Group>
+      <RateForm compact onSubmitted={reload} />
+    </Stack>
   )
 }
