@@ -103,7 +103,13 @@ export type Game = {
   level?: number
   /** Raw stored evaluations, one per position. Parsed by `analysis.parseEvals`. */
   evals?: string
-  /** What produced [evals], e.g. `builtin d2 q3`. Absent when the game has never been analysed. */
+  /**
+   * What produced [evals], e.g. `sf18-lite d14`. Absent when the game has never been analysed.
+   *
+   * Read, not merely recorded: `storedAnalysis` ignores evaluations that came from a different
+   * engine, so improving the engine retires every stored analysis rather than leaving old games
+   * showing numbers a new one would disagree with.
+   */
   analysisEngine?: string
   /** The time control's key, or undefined for an untimed game. */
   timeControl?: string

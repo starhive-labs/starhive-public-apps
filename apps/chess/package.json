@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Correspondence chess for Starhive: every game is a native object.",
   "scripts": {
+    "predev": "node scripts/copy-engine.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-engine.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "tscheck": "tsc --noEmit",
@@ -20,7 +22,8 @@
     "dayjs": "^1.11.23",
     "react": "^19.0.0",
     "react-chessboard": "^4.7.3",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "stockfish": "^18.0.8"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

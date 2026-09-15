@@ -27,10 +27,14 @@ export default defineConfig({
   build: {
     outDir: 'build',
     sourcemap: true,
-    // Phase 2 adds an analysis engine in a worker. The bundle CSP has no `worker-src`, so it falls
-    // back to `script-src 'self'` — a real same-origin worker file loads, an inlined `blob:` one is
-    // blocked with no error. Keep workers as emitted files.
-    rollupOptions: { output: { inlineDynamicImports: false } },
   },
-  worker: { format: 'es' },
+  // The engine is Stockfish, and it deliberately does not go through the bundler. `public/engine/`
+  // is emitted verbatim (see `scripts/copy-engine.mjs`), which is what both of its constraints
+  // want: the bundle CSP has no `worker-src` and so falls back to `script-src 'self'`, where a real
+  // same-origin worker file loads and an inlined `blob:` one is blocked with no error at all; and
+  // the Emscripten glue locates its own 7MB `.wasm` beside itself at runtime, which only holds if
+  // the two files are really neighbours on the origin.
+  //
+  // Compiling that `.wasm` needs `'wasm-unsafe-eval'` in the bundle policy. Without it the worker
+  // errors at boot and no search ever returns.
 })

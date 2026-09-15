@@ -1,3 +1,6 @@
 node_modules/
 build/
 *.tsbuildinfo
+
+# Copied from node_modules by scripts/copy-engine.mjs — 7MB of build output.
+public/engine/

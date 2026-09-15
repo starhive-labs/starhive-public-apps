@@ -22,14 +22,14 @@ import {
   randomSeat,
   seatOf,
 } from '../chess/game'
-import { DEFAULT_LEVEL, isAspirational, LEVELS, nameFor, thinkingTime } from '../engine/levels'
+import { DEFAULT_LEVEL, LEVELS, nameFor } from '../engine/levels'
 import {
   CATEGORY_LABEL,
   type ControlCategory,
   controlsIn,
   type TimeControl,
 } from '../chess/timeControl'
-import { accent, brandHue, CATEGORY_HUE, levelHue, partnerHue } from '../chess/palette'
+import { accent, CATEGORY_HUE, COMPUTER_HUE, levelHue, PERSON_HUE } from '../chess/palette'
 import { ComputerIcon, PersonIcon } from './icons'
 import { useGameActions } from '../useGame'
 
@@ -235,9 +235,9 @@ export function NewGame({
           </Button>
         </Group>
         <Text size="xs" c="dimmed">
-          The engine runs in your browser, which rules out Stockfish here, so the higher numbers are
-          what a level aims at rather than what it reliably plays. Up to about 1500 the difference
-          you feel is real; above it the levels mostly differ in how rarely they slip.
+          Stockfish runs in your browser, and every level searches it the same way. What changes is
+          how much a level gives away when it chooses — tuned so each rung loses about what a player
+          of that rating loses per move. It answers in well under a second either way.
         </Text>
         <SimpleGrid cols={{ base: 2, sm: 3, md: 4, lg: 5 }} spacing="xs">
           {LEVELS.map((level) => (
@@ -254,10 +254,6 @@ export function NewGame({
                 <Text size="xs" c="dimmed" ta="center">
                   {nameFor(level)}
                 </Text>
-                <Text size="10px" c="dimmed" ta="center">
-                  {thinkingTime(level)}
-                  {isAspirational(level) ? ' · aims high' : ''}
-                </Text>
               </Stack>
             </ChoiceCard>
           ))}
@@ -272,7 +268,7 @@ export function NewGame({
       <Group gap="md" wrap="wrap" justify="center">
         <ChoiceCard
           square
-          hue={brandHue(theme.colors.primary)}
+          hue={PERSON_HUE}
           scheme={scheme}
           onClick={() => setChoosingControl(true)}
         >
@@ -283,7 +279,7 @@ export function NewGame({
         </ChoiceCard>
         <ChoiceCard
           square
-          hue={partnerHue(theme.colors.primary)}
+          hue={COMPUTER_HUE}
           scheme={scheme}
           onClick={() => setChoosingLevel(true)}
         >
