@@ -33,33 +33,45 @@ reader to trust an attribution they cannot check, and when it disagrees with the
 there is no way to tell which is wrong — two named rows can be read straight off against the flags.
 
 Every position is evaluated once, in the browser, and the result is saved to the game object — so it
-happens once for both players rather than once per person per visit. About 20 seconds for a forty-move
-game, behind a progress bar. A stored analysis whose length no longer matches the move list is
-ignored rather than mispaired, so a game analysed before its last move is simply re-analysed.
+happens once for both players rather than once per person per visit, behind a progress bar. A
+forty-move game is eighty-one positions, each searched to depth 14 under a 1.5s cap, so how long that
+takes is the one number here that depends on the machine it runs on.
 
-**What the review can and cannot see.** It is the same shallow engine, so it reports what it can
-actually distinguish: a hung piece, a move into mate, a real swing in the position. It will not find
-the subtle errors a strong engine would. Two numbers, measured rather than assumed — on Morphy's
-Opera Game it flags four moves and scores both players in the nineties, correctly calling the queen
-sacrifice the best move; on a well-played quiet game it flags nothing.
+**The review is Stockfish at depth 14**, one line per position — see *Playing the computer* below.
+That is the whole of what it can see, and it is a great deal more than the engine it replaced, whose
+own ply-to-ply noise sat at 85cp in the worst case: above the 75cp inaccuracy threshold it was being
+judged against, so it flagged half the moves of a game nobody erred in.
 
-Getting there turned on one unobvious thing: **the quiescence cut-off has to be even.** An odd one
-stops in the middle of an exchange, so the evaluation credits whoever captured last — a bias that
-flips every single ply. At quiescence 3 the engine's own ply-to-ply noise was 85cp, above the 75cp
-inaccuracy threshold, and the review flagged half the moves of a game nobody erred in. At quiescence
-6 the noise is 15cp and the same game flags none. The playing ladder uses even values for the same
-reason.
+**An analysis records which engine produced it**, and one from any other engine is re-run rather than
+trusted. That is what retires every analysis stored by the old built-in engine, without which old
+games would keep showing numbers the current engine would disagree with. A stored analysis whose
+length no longer matches the move list is ignored for the same reason.
 
 **A finished game announces itself over the board**, not over the page: a card centred on the final
 position saying whether you won, how it ended, and the PGN result. Closing it leaves the position
 visible, which is what people want to look at next.
 
 **The app is coloured from one place.** `src/chess/palette.ts` turns a hue plus the viewer's colour
-scheme into a readable ground, hairline and foreground — the two new-game squares (the brand hue and
-one 140° from it), the time controls (blitz hot, rapid green, daily cool) and the level cards (a
-green-to-red ramp across the ladder) all come from it. Derived rather than picked, because a pale
-wash that looks cheerful on white is invisible on near-black, and the dark version is a deep muted
-ground with light ink rather than the same colour dimmed. Tested at both schemes across six hues.
+scheme into a readable ground, hairline and foreground — the two new-game squares, the time controls
+(blitz hot, rapid green, daily cool) and the level cards (a green-to-red ramp across the ladder) all
+come from it. Derived rather than picked, because a pale wash that looks cheerful on white is
+invisible on near-black, and the dark version is a deep muted ground with light ink rather than the
+same colour dimmed.
+
+**The two opponent squares are blue and green, pinned.** They used to be the workspace's brand hue
+and one 140° from it, which meant their character was an accident of somebody's brand colour: a blue
+workspace got blue and a dull pink, a red one got red and magenta. Blue and green are a pair whatever
+the workspace is, and neither carries the "something is wrong" that red and amber mean everywhere
+else on the screen. The workspace's colour has not gone anywhere — the board's own squares are still
+derived from it, which is by far the larger surface.
+
+**The foreground lightness is solved, not pinned.** The ground and hairline sit at fixed saturation
+and lightness per scheme; the ink does not, because HSL lightness is not perceived lightness and
+green is far brighter than blue at the same number. On the old fixed band blue read at 6.1:1 and
+green at **3.7:1** — under the 4.5:1 AA floor, on cards whose whole job is to be picked. Now the
+lightness walks away from its own ground until it clears 5:1, so every hue gets the value it needs
+rather than the one blue happened to need. Checked across all 360 hues in both schemes; the worst
+anywhere is 5.00:1.
 
 **The board wears the workspace's colour.** Its squares are derived from the theme's `primary` — hue
 only, with lightness and saturation pinned to values a chessboard works at (roughly lichess's 89%
@@ -177,42 +189,88 @@ app searches for a move in whichever browser has the game open. That sounds frag
 trigger is the position itself, so a game left with the engine to move simply gets its reply the next
 time anyone opens it.
 
-**It cannot be Stockfish *in the browser*.** The bundle CSP is `script-src 'self' 'unsafe-inline'`
-with no `'wasm-unsafe-eval'`, so WebAssembly will not compile in an app iframe at all. That rules out
-running it client-side; it does not rule out reaching one. A `proxy` remote to a Stockfish service
-would work today with no platform change — the proxy is built, and a remote with a fixed address and
-no credential is callable with nothing stored. It costs running that service, and it is the only
-route where a level means the same thing on a phone and a laptop. What is here instead
-is a small negamax with alpha-beta, quiescence and piece-square evaluation over chess.js move
-generation (`src/engine/`), running in a real worker file — never an inlined `blob:` one, which the
-same CSP would block with no error.
+**It is Stockfish**, compiled to WebAssembly and run in a worker — the lite, single-threaded build
+(`stockfish-18-lite-single`, 7MB). It replaced a small negamax over chess.js move generation that
+could not search past depth 3 in a reasonable time and whose own evaluations were noisy enough to be
+their own problem.
 
-**So the level numbers are aims, not measurements.** Measured in a middlegame with ~38 legal moves:
+Three things had to be true for it to run here, and each is worth knowing before touching this part:
 
-| search | time |
-|---|---|
-| depth 2, quiescence 4 | ~0.5s |
-| depth 3, quiescence 2 | ~6s |
-| depth 4 | ~60s |
+- **The bundle policy has to allow `'wasm-unsafe-eval'`.** Without it `WebAssembly.compile` throws in
+  an app iframe and no search ever returns. It is two string literals kept in sync —
+  `BundleCsp.kt` in `app-platform-service` and `bundle_csp` in the `app_bundles` Terraform module.
+- **The engine is not bundled.** `scripts/copy-engine.mjs` copies the two files into `public/engine/`,
+  which Vite emits verbatim. It has to be a real file on the origin twice over: the bundle CSP has no
+  `worker-src`, so it falls back to `script-src 'self'` and a `blob:` worker is blocked with no error
+  at all; and the Emscripten glue locates its own `.wasm` beside itself at runtime.
+- **The `.wasm` has to be served as `application/wasm`.** `WebAssembly.instantiateStreaming` rejects
+  anything else, and the distribution sets `X-Content-Type-Options: nosniff`, so a wrong type cannot
+  be sniffed back.
 
-Depth 3 is the practical ceiling. The ladder spends it like this:
+**Single-threaded, and that is not a tuning choice.** Multi-threaded Stockfish needs
+`SharedArrayBuffer`, which needs cross-origin isolation: COOP/COEP on the bundle response *and* on
+the host page, plus `allow="cross-origin-isolated"` on the iframe. None of that exists. The full
+(non-lite) net is 108MB against lite's 7MB, and Stockfish's own guidance is that lite is the one to
+ship — still far beyond any human, where the large one loads slowly enough to hurt.
 
-| levels | search | what separates them |
-|---|---|---|
-| 100–500 | depth 1, instant | how much they mean to give away (320cp → 235cp a move) |
-| 750–2500 | depth 2, ~2s a move | the same dial, all the way down to zero |
+**Stockfish is GPLv3.** Shipping it inside the bundle is distribution, which makes the app a
+combined work under the same licence. This repository being public is what makes that tractable. A
+server-side engine behind a `proxy` remote would not raise the question at all — running GPL software
+as a network service is not distribution — which is one more reason that route stays on the table.
 
-No rung searches three plies. It is affordable only for a level that never plays below its best —
-ranking moves needs exact scores and exact scores need a root search 2.5x dearer — which briefly made
-2500 think for seven seconds while 2400, intending to give away a single centipawn, answered in two.
-A 1cp difference in intent is not worth a 3.5x difference in waiting, so the top rung gives up the
-ply. Real strength up there is Stockfish, not tuning.
+### What the ladder does with it
 
-Up to about 1500 a rung genuinely plays like the number says. Above it the labels outrun the engine,
-and the cards say so. Making the top half real needs two things in order: allow WASM in the bundle
-policy (two string literals — `BundleCsp.kt:82` and `cloudfront.tf:42`, see the investigation doc
-§3), then put Stockfish behind the same `Profile` interface in `src/engine/levels.ts`. Nothing above
-that file changes.
+**One mechanism, all the way up.** Every rung runs the same search — depth 10, 32 `MultiPV` lines,
+about 150ms, under a 2s cap that a normal machine never reaches. What separates them is `meanLoss`,
+the centipawns a level intends to give away per move, applied by `pickByLoss` in
+`src/engine/weaken.ts` over the ranked moves that search returns. Two dials is how the ladder was
+non-monotonic the first time: a hand-written table had level 250 throwing away more than level 100.
+
+**The constants are solved, not chosen.** `meanLoss` is what a level *asks* to lose; what it actually
+loses is less, because `pickByLoss` plays the nearest available loss to its target and in most
+positions nothing sits exactly there. The gap is large and not a constant ratio — asking 134 yields
+95 — so the two cannot be equated. Each rung's `meanLoss` was therefore solved numerically against
+published centipawn loss for that rating over a set of openings, middlegames and endgames, and one
+curve fitted through the twenty answers (rms 6cp). A curve rather than the answers themselves,
+because `c + K·rᵖ` with positive constants cannot be non-monotonic at any rung. Measured over
+fourteen positions:
+
+| level | asks to lose | actually loses | worst single move | moves ≥300cp |
+|---|---|---|---|---|
+| 100 | 244 | 172 | 628 | 17.9% |
+| 500 | 191 | 143 | 507 | 12.8% |
+| 1000 | 134 | 95 | 356 | 1.9% |
+| 1500 | 88 | 64 | 239 | 0% |
+| 2000 | 54 | 41 | 165 | 0% |
+| 2500 | 38 | 30 | 125 | 0% |
+
+**The tail is what a level feels like, not the average.** `maxLoss` was four times the mean, which
+was harmless against an engine that could not find a move that bad and ruinous against one that can:
+level 1000 kept a respectable average while throwing a whole rook away every dozen-odd moves, which
+is not what a 1000 feels like — it is what losing feels like. At 2.5x the mean, a 300cp move is gone
+from every rung above 1200 and a 500cp one from everything above 750.
+
+Stockfish has its own `UCI_LimitStrength`/`UCI_Elo`, properly calibrated by people who measure it,
+and it is deliberately unused: it floors at 1320 and half this ladder is below that. Elo-limiting
+above and loss-shaping below is two mechanisms meeting in the middle.
+
+**What changed by moving off the built-in engine.** The dial and its units are the same; the numbers
+feeding it are now true. The old engine's own noise was 15cp at best and 85cp at worst, which put a
+level's intended error inside its engine's error. It also saturated — the bottom of the ladder could
+not give away more than about 130cp however hard it was pushed, because at depth 2 it could not tell
+which moves the bad ones were. Both are gone, so the weakest rungs are now genuinely as weak as they
+always claimed: 100 will hang a piece, which is what a 100 does.
+
+**The numbers are still aims.** Each rung now loses what a player of that rating loses per move,
+measured — but centipawn loss is not the whole of playing strength, and nothing here has been played
+against rated opposition. The ladder is fitted to a proxy, not to results.
+
+**Strength depends on the device.** A search bounded by wall-clock on the player's own hardware means
+a phone reaches a shallower depth than a laptop in the same second. The only route where 1500 means
+the same thing everywhere is a server-side engine behind the same `Profile` — a `proxy` remote needs
+no platform change, since the proxy is built and a remote with a fixed address and no credential is
+callable with nothing stored. It costs running that service. Nothing above `src/engine/levels.ts`
+would change.
 
 ## Clocks
 
@@ -285,4 +343,5 @@ export STARHIVE_TOKEN='<__Host-access_token>'
   concurrency. Chess is turn-based, so a genuine race needs both players moving in the same second.
 - **The lobby reads 50 recent games** and sorts them in the browser rather than in StarQL, which
   would have to name attributes by their (renameable) display names.
-- **Levels above 1600 are labelled "aims high"** on their card, because they are.
+- **Level numbers are aims, not measured ratings**, and strength varies with the player's device —
+  see *Playing the computer*.

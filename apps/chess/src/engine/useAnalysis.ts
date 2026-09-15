@@ -30,6 +30,11 @@ export type AnalysisState = {
 /** The stored analysis for [game], if it has one that still describes it. */
 export function storedAnalysis(game: Game | undefined): number[] {
   if (!game) return []
+  // What produced the numbers is part of whether they can be believed, and this is the release
+  // where that changed: the old built-in engine's own noise sat above the threshold it was judging
+  // moves against, so it flagged moves in games nobody erred in. An analysis from any engine but
+  // the current one is re-run rather than trusted — which is what `analysisEngine` was stored for.
+  if (game.analysisEngine !== ANALYSIS_ENGINE) return []
   const evals = parseEvals(game.evals)
   return analysisMatches(evals, game.moves.length) ? evals : []
 }

@@ -1,38 +1,33 @@
 /**
  * The strength ladder.
  *
- * **These are the ratings a level aims at, not measured strength.** The engine behind them is a
- * negamax over chess.js move generation running in a browser worker, because the bundle CSP
- * (`script-src 'self' 'unsafe-inline'`, no `'wasm-unsafe-eval'`) refuses to compile WebAssembly, so
- * Stockfish cannot run *in the browser*.
+ * The engine underneath is Stockfish 18 (lite, single-threaded) compiled to WebAssembly and run in a
+ * worker — see `uci.ts` for how it is spoken to and `scripts/copy-engine.mjs` for how it gets there.
+ * That replaced a negamax over chess.js move generation, which could not search past depth 3 in a
+ * reasonable time and whose evaluations were noisy enough to be their own problem.
  *
- * That is a statement about compiling WASM client-side, not about what is reachable. There are two
- * ways to a real engine, and this file is the seam for both — nothing above it changes either way:
+ * **One mechanism, all the way up.** Every rung searches the same depth in the same time; what
+ * separates them is [Profile.meanLoss] — how many centipawns a level intends to give away per move.
+ * The search is not the dial, because two dials is how the ladder was non-monotonic the first time:
+ * a hand-written table had level 250 throwing away more than level 100, and 1000 through 1400
+ * indistinguishable. A formula over one dial cannot do that.
  *
- * 1. **Allow `'wasm-unsafe-eval'`** in the bundle policy (`BundleCsp.kt`, `cloudfront.tf`) and run
- *    Stockfish in this worker. Nearly free, nothing to operate, nothing leaves the browser — but the
- *    strength a player meets then depends on the device they are holding.
- * 2. **A `proxy` remote** to a Stockfish service. The proxy is built and needs no platform change
- *    (`app-platform-service/.../remote/`), and a remote with a fixed address and no credential is
- *    callable with nothing stored. It costs running that service, and it is the only route that
- *    makes 1500 mean the same thing on a phone and a laptop.
+ * **What changed by moving to Stockfish.** The dial is the same and its units are the same, but the
+ * numbers feeding it are now true. The old engine's own evaluation noise was measured at 15cp at
+ * best and 85cp at worst, which put a level's intended error inside its engine's error — asking for
+ * 90cp and getting something between 5 and 175. It also saturated: the bottom of the ladder could
+ * not give away more than about 130cp however hard it was pushed, because at depth 2 it could not
+ * tell which moves were the bad ones. Both of those are gone.
  *
- * What that costs, measured rather than guessed, in a middlegame with ~38 legal moves:
+ * **The numbers are still aims.** `meanLoss` is calibrated in the right units against the right
+ * scores now, but nothing here has been played against rated opposition, so the mapping from
+ * centipawn loss to Elo is inherited rather than measured. The shape is sound and monotonic; the
+ * labels are a promise the ladder has not yet been made to keep.
  *
- * | search | time |
- * |---|---|
- * | depth 2, quiescence 4 | ~0.5s |
- * | depth 3, quiescence 2 | ~6s |
- * | depth 4 | ~60s |
- *
- * So depth 3 is the practical ceiling, and the numbers below are honest only at the bottom of the
- * ladder. Up to about 1500 the rungs differ in the way a weaker player differs from a stronger one:
- * how often they throw a move away. Above it they differ by less and less, and the top few are the
- * same search with the sloppiness turned off — a long way short of a real 2500.
- *
- * Making the top half mean what it says needs two things, in this order: allow WASM in the bundle
- * policy (two string literals — see `docs/chess-app-investigation.md` §3 in the starhive-development
- * repo), then put Stockfish behind this same `Profile` interface. Nothing above this file changes.
+ * **Strength depends on the device.** A search bounded by wall-clock on the player's own hardware
+ * means a phone reaches a shallower depth than a laptop in the same second. The only route where
+ * 1500 means the same thing everywhere is a server-side engine behind this same [Profile] — see the
+ * `proxy` remote route in the app README. Nothing above this file would change.
  */
 
 /** Every level offered, weakest first. */
@@ -47,30 +42,27 @@ export const DEFAULT_LEVEL: Level = 1000
 
 export type Profile = {
   elo: number
-  /** Hard ceiling on iterative deepening. */
+  /** Ceiling on the search, as UCI `go depth`. */
   depth: number
-  /** Wall-clock budget for a move. A depth that does not finish inside it is discarded. */
-  timeMs: number
   /**
-   * How far past the horizon captures are chased. 0 disables quiescence entirely.
-   *
-   * **Keep it even.** An odd cut-off stops in the middle of an exchange, so the evaluation credits
-   * whoever captured last — a bias that flips every ply. Measured, an odd depth was six times
-   * noisier than the even one either side of it.
+   * Wall-clock budget for a move, as UCI `go movetime`. A cap, not a target: the search stops at
+   * whichever of the two it reaches first, and at these depths that is almost always the depth.
    */
-  quiescence: number
+  timeMs: number
+  /** How many ranked moves to ask Stockfish for, as `MultiPV`. See [RANKED_MOVES]. */
+  multiPv: number
   /**
    * Average centipawns this level intends to give away per move. 0 always plays the best move.
    *
    * In the same units as the thing it controls, so calibration is not guesswork: a level that should
-   * lose 90cp a move asks for 90. See `pickByLoss`.
+   * lose 90cp a move asks for 90. See `pickByLoss` in `weaken.ts`.
    */
   meanLoss: number
   /**
    * The most one move may give away, in centipawns.
    *
-   * The difference between "a bit weaker" and "hangs the queen", and the reason the ladder no longer
-   * produces 700cp single-move losses at levels that should never see them.
+   * The difference between "a bit weaker" and "hangs the queen", and the reason the ladder does not
+   * produce 700cp single-move losses at levels that should never see them.
    */
   maxLoss: number
 }
@@ -79,8 +71,7 @@ export type Profile = {
  * The names, and only the names.
  *
  * The numbers used to live in a table too, and a hand-written table is how the ladder ended up
- * non-monotonic — measured, level 250 threw away more than level 100, and 1000 through 1400 were
- * indistinguishable. A formula cannot do that, and the tests assert it does not.
+ * non-monotonic. A formula cannot do that.
  */
 const NAMES: Array<[number, string]> = [
   [250, 'Learning the moves'],
@@ -97,52 +88,74 @@ const NAMES: Array<[number, string]> = [
 const WEAKEST = LEVELS[0]
 const STRONGEST = LEVELS[LEVELS.length - 1]
 
+/**
+ * What every rung searches.
+ *
+ * Depth 10 with [RANKED_MOVES] lines measured at ~150ms, against 400–750ms for depth 12, and every
+ * line reaches the full depth in both cases. Depth 12 was the first choice and is not worth its
+ * price: the whole ladder is far beyond human strength at either, and what the extra plies buy is a
+ * search more likely to be cut off on a slow device — which is the one outcome that actually costs
+ * something, because a cut-off iteration leaves some lines a ply shallower than others and the
+ * losses `pickByLoss` reads off them stop being comparable.
+ */
+const SEARCH_DEPTH = 10
+
+/**
+ * The wall-clock cap on a move.
+ *
+ * Generous on purpose. It never binds on a machine that finishes in 150ms, so its only effect is on
+ * a slow device, where waiting is cheaper than the mixed-depth scores a cut-off search produces.
+ */
+const MOVE_BUDGET_MS = 2000
+
+/**
+ * How many ranked moves every weakened rung sees, as `MultiPV`.
+ *
+ * The supply side of [Profile.meanLoss]: a level cannot give away 200cp from a list that does not
+ * contain a move costing 200cp. Fixed rather than scaled to the level, which is how it was first
+ * written — scaling made the *tail* a function of where the truncation happened to fall, so two
+ * adjacent rungs differed by 470cp in their worst single move for no reason anyone intended.
+ */
+const RANKED_MOVES = 32
+
 /** 0 at the bottom of the ladder, 1 at the top. */
 function position(elo: number): number {
   const clamped = Math.max(WEAKEST, Math.min(STRONGEST, elo))
   return (clamped - WEAKEST) / (STRONGEST - WEAKEST)
 }
 
+/**
+ * The ladder, fitted rather than chosen.
+ *
+ * `meanLoss` is what a level *asks* to give away; what it actually gives away is less, because
+ * `pickByLoss` can only play a move that exists — it picks the nearest available loss to its target,
+ * and in most positions nothing sits exactly there. The gap is large (asking 134 yields 93) and it
+ * is not a constant ratio, so the two cannot be equated.
+ *
+ * So these constants were solved, not picked: for each rung, the `meanLoss` whose *measured* average
+ * loss over a set of openings, middlegames and an endgame matches the published centipawn loss for
+ * that rating, and then one curve fitted through the twenty answers (rms 6cp). A curve rather than
+ * the twenty answers themselves, because a hand-written table is exactly how this ladder was
+ * non-monotonic the first time — and `c + K·rᵖ` with positive constants cannot be, at any rung.
+ */
 export function profileFor(elo: number): Profile {
-  const t = position(elo)
-  const remaining = 1 - t
+  const remaining = 1 - position(elo)
 
-  // Depth is what the level can see; meanLoss is how much of it the level chooses to use.
-  //
-  // **Why no rung searches three plies.** Playing below your best means ranking the moves against
-  // each other, ranking needs exact scores, and exact scores need the *wide* root search at about
-  // 2.5x the cost — so depth 3 is affordable only for a level that never plays below its best, which
-  // is the top rung alone. That produced an absurd cliff: 2400 intends to give away one centipawn a
-  // move, one centipawn is not zero, so it searched wide at depth 2 in two seconds — while 2500, at
-  // exactly zero, searched narrow at depth 3 and took seven. A 1cp difference in intent buying a
-  // 3.5x difference in thinking time is not a trade worth making, least of all at the end of a
-  // ladder that is openly aspirational up there anyway.
-  //
-  // So the whole ladder is one mechanism: the same search, and meanLoss all the way up. The top rung
-  // gives up a ply and answers in two seconds like everything else. Getting real strength back is
-  // not a matter of tuning this line — it is Stockfish, by either route named above.
-  const depth = elo >= 750 ? 2 : 1
-  const timeMs = depth === 2 ? 2200 : 600
+  const meanLoss = Math.round(38 + 206 * remaining ** 1.62)
+  // The tail, and the thing that decides how a level *feels* rather than how it averages. It used to
+  // be four times the mean, which was harmless against an engine that could not find a move that bad
+  // and ruinous against one that can: level 1000 was throwing a whole rook away on 6% of its moves
+  // while its average looked respectable. At 2.5x, a move costing 300cp or more disappears from
+  // every rung above 1000 and stays only where a beginner belongs.
+  const maxLoss = Math.round(2.5 * meanLoss) + 30
 
   return {
     elo,
-    depth,
-    timeMs,
-    // Even, always: an odd cut-off stops mid-exchange and credits whoever captured last.
-    //
-    // The weakest rungs get less of it on purpose. Asking a level to give away 320cp a move does not
-    // work if no move on the board gives away that much — measured, the bottom of the ladder
-    // saturated around 130cp however hard it was pushed. Taking quiescence away instead makes the
-    // level genuinely not see the recapture, so it loses material the way a beginner does: by
-    // missing the exchange rather than by choosing a bad move on purpose.
-    quiescence: elo <= 250 ? 0 : elo <= 500 ? 2 : 4,
-    // Tuned against measurement, not chosen: see the table in the README. The exponent makes the
-    // drop steep at the bottom, where rungs are far apart in strength, and gentle at the top, where
-    // they are close.
-    meanLoss: Math.round(320 * remaining ** 1.7),
-    // The tail. Four times the mean, so the cap binds rarely but a single move can never be a
-    // catastrophe — the failure of the very first model.
-    maxLoss: Math.round(4 * 320 * remaining ** 1.7) + 20,
+    depth: SEARCH_DEPTH,
+    timeMs: MOVE_BUDGET_MS,
+    multiPv: RANKED_MOVES,
+    meanLoss,
+    maxLoss,
   }
 }
 
@@ -152,51 +165,33 @@ export function nameFor(elo: number): string {
 }
 
 /**
- * True where the label is doing more work than the engine.
- *
- * The card says so rather than letting someone pick 2500 and wonder why it drops a piece.
- */
-export function isAspirational(elo: number): boolean {
-  return elo > 1600
-}
-
-/**
- * How long this level may take to move, for the card.
- *
- * A ceiling, and phrased as one: `timeMs` is the budget iterative deepening is cut off at, not the
- * time a move actually takes. Measured, a depth-2 rung answers a middlegame in about a second and
- * only approaches its budget in a tangle — saying "~2s" would overstate the wait on most moves.
- */
-export function thinkingTime(elo: number): string {
-  const { timeMs } = profileFor(elo)
-  return timeMs >= 1000 ? `under ${Math.round(timeMs / 1000)}s a move` : 'instant'
-}
-
-/**
  * The analysis profile, which is not a playing profile.
  *
  * Never a blunder and never a near-best pick: an evaluation wants the truth of the position, not a
- * personality. The other two numbers were measured rather than chosen.
+ * personality. One line, because ranking alternatives is a player's problem and not a reviewer's.
  *
- * **Depth 2, not 3.** Depth 3 costs five times as much (80s against 16s for the same game) and
- * flags *more* moves, not fewer — it is slower and no steadier. Depth is not what this engine is
- * short of.
+ * Deeper than a playing rung and given more time, since this runs once per game rather than once per
+ * move and everyone who opens the game afterwards reads the stored answer. A forty-move game is
+ * eighty-one positions, so the budget here is what decides whether the progress bar takes twenty
+ * seconds or two minutes.
  *
- * **Quiescence 6, and even.** This is what actually mattered. A quiescence cut-off is a horizon of
- * its own, and an *odd* one stops in the middle of an exchange, so the evaluation is biased by
- * whoever happened to capture last — which alternates every ply. Measured on a quiet game, the
- * median ply-to-ply wobble was 85cp at q3 and 15cp at q6, with the worst case falling from 145cp to
- * 50cp. Since an inaccuracy starts at 75cp, q3 put the engine's own noise floor *above* the
- * threshold it was being judged against: it flagged half the moves in a game where nobody erred.
+ * The quiescence tuning this used to carry is gone with the engine that needed it. Its noise floor
+ * sat above the 75cp inaccuracy threshold it was being judged against, which is why a game nobody
+ * erred in flagged half its moves; Stockfish's own search settles exchanges without being asked.
  */
 export const ANALYSIS_PROFILE: Profile = {
   elo: 0,
-  depth: 2,
-  timeMs: 6000,
-  quiescence: 6,
+  depth: 14,
+  timeMs: 1500,
+  multiPv: 1,
   meanLoss: 0,
   maxLoss: 0,
 }
 
-/** What `analysisEngine` records, so a better engine later knows what to re-run. */
-export const ANALYSIS_ENGINE = `builtin d${ANALYSIS_PROFILE.depth} q${ANALYSIS_PROFILE.quiescence}`
+/**
+ * What `analysisEngine` records, so a better engine later knows what to re-run.
+ *
+ * Changing this string is how every stored analysis from the old built-in engine is retired: a game
+ * whose evaluations were produced by something else is re-analysed rather than trusted.
+ */
+export const ANALYSIS_ENGINE = `sf18-lite d${ANALYSIS_PROFILE.depth}`
