@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Time Tracking">
+  <title>Time Tracking</title>
+  <!--
+    Marketplace logo. Full-bleed square on purpose: the marketplace draws its own 8px-rounded,
+    overflow-hidden container, so baking a radius in here would either be clipped away or leave a
+    pale notch in each corner where the tile's rounding ran ahead of the container's.
+
+    One mark, two readings. The bright wedge is the hours logged and the dim disc behind it is the
+    rest, which is the app's whole subject — time, and whose share of it. The wedge's two straight
+    edges land at 12 and 4, so the same shape reads as a clock at a glance. Nothing here is smaller
+    than about 2px at the 40px size the app lists at.
+
+    Colours are Starhive's own: the brand blue the product themes on, and white.
+  -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5A76FF"/>
+      <stop offset="1" stop-color="#3D5AF0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#tile)"/>
+
+  <!-- The face. -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#FFFFFF" stroke-width="30"/>
+
+  <!-- Everyone else's time. -->
+  <circle cx="256" cy="256" r="120" fill="#FFFFFF" fill-opacity="0.28"/>
+
+  <!-- Time logged: 12 o'clock round to 4. -->
+  <path d="M256 256 L256 136 A120 120 0 0 1 359.92 316 Z" fill="#FFFFFF"/>
+</svg>

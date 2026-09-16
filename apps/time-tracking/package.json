@@ -1,0 +1,33 @@
+{
+  "name": "time-tracking-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Time Tracking for Starhive: log hours on any object, see who logged what, and how it adds up per person and per month.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tscheck": "tsc --noEmit",
+    "test": "tsc src/timeEntry.ts src/report.ts --outDir .test-build --target ES2022 --module ESNext --moduleResolution bundler && sed -i '' \"s|from './timeEntry'|from './timeEntry.js'|\" .test-build/report.js && node src/timeEntry.test.mjs && node src/report.test.mjs",
+    "deploy": "starhive app deploy --build --dir ./build --manifest ./manifest.yaml",
+    "deploy:local": "starhive app deploy --build --dir ./build --manifest ./manifest.yaml --api http://localhost:8099"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@mantine/core": "^7.17.8",
+    "@mantine/dates": "^7.17.8",
+    "@mantine/emotion": "^7.17.8",
+    "dayjs": "^1.11.23",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react-swc": "^3.7.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  }
+}

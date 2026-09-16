@@ -51,6 +51,7 @@ TARGETS=(
   "apps/chess"
   "apps/gitlab"
   "apps/excalidraw"
+  "apps/time-tracking"
   "examples/time-reporting"
   "examples/employee-onboarding"
   "examples/ice-cream-survey"
