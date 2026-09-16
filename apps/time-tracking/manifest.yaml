@@ -1,0 +1,113 @@
+# Time Tracking for Starhive — hours logged on an object, by whoever logged them.
+#
+# Every entry is a native `Time Entry` object in the app's own space, recording who spent the time and
+# what they spent it on. Nothing is derived server-side: the totals, the per-person split and the
+# per-month breakdown are all read off those objects when a panel opens, so Starhive's own views,
+# StarQL and widgets report on the same rows the app does.
+#
+# The object an entry belongs to is held as its **id, in a TEXT attribute**, not as a REFERENCE. A
+# REFERENCE targets exactly one type, and a workspace tracks time on more than one — Projects and
+# Tickets and whatever else, types with nothing in common to extend. An id in a text field belongs to
+# no type, so the setting below takes a list. See README → "Which objects time can be logged on" for
+# what that costs.
+app:
+  key: com.starhive.apps.timetracking
+  version: 0.3.0
+  description: Log time on any object. See who logged what, the total, and how it splits per person and per month.
+  icon: extension
+
+modules:
+  # The product: a "Time" tab beside Comments and History on the objects an admin nominated.
+  objectPanel:
+    # `showFor` keeps the tab off objects this app is not meant for. Bound to the same setting the
+    # read scope is, so the tab is offered exactly where the app may read — subtypes count, the way
+    # they do for the scope. The binding resolves to a *list* of type ids, which is what lets one
+    # install cover several unrelated types.
+    - { key: time, title: Time, route: /, showFor: "${config.workItemTypes}" }
+  # Reporting across every work item: period, total, per person, per month, per work item.
+  globalPage:
+    - { key: report, title: Time Tracking, icon: extension, route: / }
+  # This month at a glance, for a dashboard.
+  widget:
+    - { key: this-month, title: Time this month, route: / }
+  settingsPage:
+    - { key: settings, title: Time Tracking, route: / }
+
+# Admin settings, stored on the install (read via starhive.config.get()).
+config:
+  # Which types time may be logged on. `multi: true` — an entry stores an object id rather than a
+  # typed reference, so nothing here is limited to one type.
+  #
+  # Defaults to the app's own `Work Item` type so the app works out of the box; an admin adds the
+  # types their team actually works in. Changing the list later is safe: it decides where the Time
+  # tab appears and what the app may read, and never touches an entry already written. Time logged
+  # on a type since removed keeps reporting; its tab simply stops being offered.
+  - key: workItemTypes
+    name: Work item types
+    type: typeRef
+    multi: true
+    default: workItem
+    help: Every type that should get a Time tab. Objects of the types that extend these count too.
+  # Round every logged duration to this many minutes. 0 keeps what was typed.
+  - { key: roundingMinutes, name: Rounding (minutes), type: number, default: 0 }
+
+# What this app reads beyond its own types, and why.
+#
+# This is the whole permission now. It used to ride along with the `workItem` REFERENCE — the host
+# opens the types an app's config-bound references point at — and a reference points at one type, so
+# the read was one type too. Declared as a scope it is whatever the admin put in the setting, which
+# is the shape this app actually needs: the panel reads the object it is opened on, whichever of the
+# nominated types that is.
+scopes:
+  read:
+    - config: workItemTypes
+      reason: >-
+        Reads the object a Time tab is opened on, to show its name over the hours logged on it and to
+        check that time can be logged there at all. Also lists objects of these types on the app page,
+        so time can be logged without opening each one.
+
+data:
+  # `open`: every workspace user may read this space. The Time tab is offered to everyone who can see
+  # a work item, and every read of the app's own entries runs as the viewer — a restricted space
+  # would let the installer use the app and refuse everybody else with a 403 on each request.
+  space: { key: time-tracking, name: Time Tracking, access: open }
+  types:
+    # A minimal work item type, so there is something to log time on in a workspace with no planning
+    # type yet. Most installs will nominate their own types instead, or as well.
+    - key: workItem
+      name: Work Item
+      labelAttribute: title
+      attributes:
+        - { key: title, name: Title, type: TEXT, required: true }
+    - key: timeEntry
+      name: Time Entry
+      # The label is written by the app: the description when there is one, else
+      # "2h 30m · Jane Doe · 2026-09-15", so an entry reads sensibly wherever Starhive lists it.
+      labelAttribute: summary
+      attributes:
+        - { key: summary,       name: Summary,           type: TEXT, required: true }
+        # What the time was spent on, as the object's id.
+        #
+        # Filtered with StarQL's **strict** equality (`==`), which for a TEXT attribute matches the
+        # untokenized keyword field — plain `=` goes through the analyzer, where a hyphenated uuid is
+        # several tokens and one entry's id would match another's.
+        - { key: workItemId,    name: Work item id,      type: TEXT, required: true }
+        # The object's name as it read when the time was logged. Denormalized on purpose: with no
+        # reference there is nothing for the host to resolve a label from, and a report that names
+        # its rows must not cost one read per row. Rewritten on every log against the same object.
+        - { key: workItemLabel, name: Work item,         type: TEXT, required: true }
+        # Which type that object was. Not needed to find an entry — the id is unique — but it is what
+        # keeps an entry meaningful after its type is dropped from the setting, and it lets a report
+        # group by type without reading every object back.
+        - { key: workItemTypeId, name: Work item type id, type: TEXT }
+        # Who spent the time. Written by the app as the signed-in user, never picked from a list.
+        - { key: loggedBy,      name: Logged by,         type: USER, required: true }
+        # The day the work was done — not the day it was logged.
+        - { key: date,          name: Date,              type: DATE, required: true }
+        # Decimal hours. 1.5 is an hour and a half; the app parses "1:30" and "1h 30m" into it.
+        - { key: hours,         name: Hours,             type: DECIMAL, required: true }
+        - { key: description,   name: Description,       type: TEXT }
+  # One default work item, so logging works the moment the app is installed.
+  seed:
+    workItem:
+      - { title: General }

@@ -9,11 +9,12 @@ when they copy it, so anything it needs, it declares.
 
 ## Our apps
 
-| App                                   | What it does                                                       |
-| ------------------------------------- | ------------------------------------------------------------------ |
-| [`apps/chess`](apps/chess/)           | Correspondence chess; every game is a native object                |
-| [`apps/gitlab`](apps/gitlab/)         | GitLab merge requests and branches beside a work item              |
-| [`apps/excalidraw`](apps/excalidraw/) | Excalidraw diagrams as a macro block inside a page                 |
+| App                                         | What it does                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------- |
+| [`apps/chess`](apps/chess/)                 | Correspondence chess; every game is a native object               |
+| [`apps/gitlab`](apps/gitlab/)               | GitLab merge requests and branches beside a work item             |
+| [`apps/excalidraw`](apps/excalidraw/)       | Excalidraw diagrams as a macro block inside a page                |
+| [`apps/time-tracking`](apps/time-tracking/) | Log time on any object; who logged what, per person and per month |
 
 ## Examples
 
