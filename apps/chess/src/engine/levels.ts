@@ -19,10 +19,13 @@
  * not give away more than about 130cp however hard it was pushed, because at depth 2 it could not
  * tell which moves were the bad ones. Both of those are gone.
  *
- * **The numbers are still aims.** `meanLoss` is calibrated in the right units against the right
- * scores now, but nothing here has been played against rated opposition, so the mapping from
- * centipawn loss to Elo is inherited rather than measured. The shape is sound and monotonic; the
- * labels are a promise the ladder has not yet been made to keep.
+ * **The numbers are measured now, not inherited.** They used to be solved against *published*
+ * centipawn loss for a rating — a table of what humans of that rating average — and that was the
+ * whole problem. Matching a human's average error does not produce a player of that strength: a
+ * human's error is concentrated in a few blunders around an otherwise accurate game, and a level
+ * that spends its allowance evenly, move after move, is far weaker for the same average. Games said
+ * so — every rung was 300–390 Elo below its own label, and level 1000 played at about 610. The
+ * ladder is fitted to played games instead; see [profileFor].
  *
  * **Strength depends on the device.** A search bounded by wall-clock on the player's own hardware
  * means a phone reaches a shallower depth than a laptop in the same second. The only route where
@@ -125,23 +128,46 @@ function position(elo: number): number {
 }
 
 /**
- * The ladder, fitted rather than chosen.
+ * The ladder, fitted to games.
  *
- * `meanLoss` is what a level *asks* to give away; what it actually gives away is less, because
- * `pickByLoss` can only play a move that exists — it picks the nearest available loss to its target,
- * and in most positions nothing sits exactly there. The gap is large (asking 134 yields 93) and it
- * is not a constant ratio, so the two cannot be equated.
+ * `meanLoss` is what a level *asks* to give away; what it actually gives away is about 0.7 of that,
+ * because `pickByLoss` can only play a move that exists — it picks the nearest available loss to its
+ * target, and in most positions nothing sits exactly there. So the ask is not the loss, and neither
+ * one is the strength: only games are.
  *
- * So these constants were solved, not picked: for each rung, the `meanLoss` whose *measured* average
- * loss over a set of openings, middlegames and an endgame matches the published centipawn loss for
- * that rating, and then one curve fitted through the twenty answers (rms 6cp). A curve rather than
- * the twenty answers themselves, because a hand-written table is exactly how this ladder was
- * non-monotonic the first time — and `c + K·rᵖ` with positive constants cannot be, at any rung.
+ * Each rung therefore played Stockfish's own `UCI_Elo` limiter — calibrated by people who measure it
+ * — set to that rung's own number, 30 to 40 games, both colours, from a twelve-line opening book.
+ * That is one pairing per rung, `level L` against `SF@L`, which is deliberate: it never assumes
+ * Stockfish's *spacing* is true, only that each label it is given means something.
+ *
+ * The first run said the ladder was nowhere near its labels, and that the error grew with the rung:
+ *
+ * | level | played like, before | with this curve |
+ * |---|---|---|
+ * | 1000 | 610 | 1035 |
+ * | 1400 | 1099 | 1347 |
+ * | 1700 | 1348 | 1602 |
+ * | 2000 | 1675 | 1956 |
+ * | 2200 | — | 2156 |
+ * | 2500 | 2118 | 2465 |
+ *
+ * Hence these constants rather than the old ones. It stays a curve and not a table for the reason it
+ * always was — every term has a positive coefficient and grows with `remaining`, so no rung can come
+ * out weaker than the one below it, and a hand-written table is exactly how this ladder went
+ * non-monotonic the first time. What changed is only what the curve was fitted to.
+ *
+ * **What is left is the two ends.** Everything at or above 1400 was measured directly; 1000 was
+ * measured against Stockfish's floor of 1320, which is as low as its limiter goes. Below 1000 the
+ * curve is extrapolation, and a 40-game match carries about ±90 Elo of noise besides — so the rungs
+ * are honest to roughly a hundred points, not to one.
  */
 export function profileFor(elo: number): Profile {
   const remaining = 1 - position(elo)
 
-  const meanLoss = Math.round(38 + 206 * remaining ** 1.62)
+  // The linear term is not fitted, it is resolution. Without it the power term collapses near the
+  // top — 2400 and 2500 came out on identical constants, which is the "adjacent rungs nobody can
+  // tell apart" failure this file exists to prevent, just moved to the other end of the ladder.
+  const meanLoss = Math.round(22 + 14 * remaining + 210 * remaining ** 2.4)
   // The tail, and the thing that decides how a level *feels* rather than how it averages. It used to
   // be four times the mean, which was harmless against an engine that could not find a move that bad
   // and ruinous against one that can: level 1000 was throwing a whole rook away on 6% of its moves

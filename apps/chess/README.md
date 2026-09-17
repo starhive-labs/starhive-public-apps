@@ -226,23 +226,42 @@ the centipawns a level intends to give away per move, applied by `pickByLoss` in
 `src/engine/weaken.ts` over the ranked moves that search returns. Two dials is how the ladder was
 non-monotonic the first time: a hand-written table had level 250 throwing away more than level 100.
 
-**The constants are solved, not chosen.** `meanLoss` is what a level *asks* to lose; what it actually
-loses is less, because `pickByLoss` plays the nearest available loss to its target and in most
-positions nothing sits exactly there. The gap is large and not a constant ratio — asking 134 yields
-95 — so the two cannot be equated. Each rung's `meanLoss` was therefore solved numerically against
-published centipawn loss for that rating over a set of openings, middlegames and endgames, and one
-curve fitted through the twenty answers (rms 6cp). A curve rather than the answers themselves,
-because `c + K·rᵖ` with positive constants cannot be non-monotonic at any rung. Measured over
-fourteen positions:
+**The constants come from games, and they used not to.** `meanLoss` is what a level *asks* to lose;
+what it actually loses is about 0.7 of that, because `pickByLoss` plays the nearest available loss to
+its target and in most positions nothing sits exactly there. Each rung's `meanLoss` was once solved
+against *published* centipawn loss for that rating — what humans of that rating average — and that
+was the whole problem, because matching a human's average error does not produce a player of that
+strength. A human's error is concentrated in a few blunders around an otherwise accurate game; a
+level that spends the same allowance evenly, move after move, is far weaker for the same average.
 
-| level | asks to lose | actually loses | worst single move | moves ≥300cp |
+So every rung now plays for its number. Each one was matched against Stockfish's own
+`UCI_LimitStrength`/`UCI_Elo` — calibrated by people who measure it — set to that rung's own value,
+30–40 games, both colours, from a twelve-line opening book. One pairing per rung, `level L` against
+`SF@L`, so the test never assumes Stockfish's *spacing* is true, only that each label it is handed
+means something.
+
+The first run found the whole ladder far below its labels, and the error growing with the rung:
+
+| level | used to ask | played like | now asks | plays like |
 |---|---|---|---|---|
-| 100 | 244 | 172 | 628 | 17.9% |
-| 500 | 191 | 143 | 507 | 12.8% |
-| 1000 | 134 | 95 | 356 | 1.9% |
-| 1500 | 88 | 64 | 239 | 0% |
-| 2000 | 54 | 41 | 165 | 0% |
-| 2500 | 38 | 30 | 125 | 0% |
+| 1000 | 134 | 610 | 99 | **1035** |
+| 1400 | 96 | 1099 | 61 | **1347** |
+| 1700 | 73 | 1348 | 42 | **1602** |
+| 2000 | 54 | 1675 | 30 | **1956** |
+| 2200 | 45 | — | 25 | **2156** |
+| 2500 | 38 | 2118 | 22 | **2465** |
+
+A curve rather than a table of the answers, for the reason it always was: every term has a positive
+coefficient and grows as the rung gets weaker, so no rung can come out weaker than the one below it,
+and a hand-written table is how the ladder went non-monotonic the first time. The curve's linear term
+earns its place at the top rather than in the fit — without it the power term collapses and 2400 and
+2500 land on identical constants, which is the same "nobody can tell these apart" failure at the
+other end of the ladder.
+
+**The two ends are weaker evidence than the middle.** Everything from 1400 up was measured against
+its own number directly. 1000 was measured against Stockfish's floor of 1320, which is as low as its
+limiter goes, and below 1000 the curve is extrapolation. A 40-game match also carries around ±90 Elo
+of noise, so a rung is honest to roughly a hundred points, not to one.
 
 **The tail is what a level feels like, not the average.** `maxLoss` was four times the mean, which
 was harmless against an engine that could not find a move that bad and ruinous against one that can:
@@ -250,9 +269,9 @@ level 1000 kept a respectable average while throwing a whole rook away every doz
 is not what a 1000 feels like — it is what losing feels like. At 2.5x the mean, a 300cp move is gone
 from every rung above 1200 and a 500cp one from everything above 750.
 
-Stockfish has its own `UCI_LimitStrength`/`UCI_Elo`, properly calibrated by people who measure it,
-and it is deliberately unused: it floors at 1320 and half this ladder is below that. Elo-limiting
-above and loss-shaping below is two mechanisms meeting in the middle.
+Stockfish's own `UCI_LimitStrength`/`UCI_Elo` calibrates the ladder but does not drive it: it floors
+at 1320 and half this ladder is below that, so Elo-limiting above and loss-shaping below would be two
+mechanisms meeting in the middle. It is a good ruler and a bad engine for this.
 
 **What changed by moving off the built-in engine.** The dial and its units are the same; the numbers
 feeding it are now true. The old engine's own noise was 15cp at best and 85cp at worst, which put a
