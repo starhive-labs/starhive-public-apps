@@ -8,7 +8,7 @@
 # that cannot be added later.
 app:
   key: com.starhive.apps.chess
-  version: 0.35.0
+  version: 0.36.0
   description: Correspondence chess for your workspace. Every game is a native Starhive object.
   icon: extension
 
