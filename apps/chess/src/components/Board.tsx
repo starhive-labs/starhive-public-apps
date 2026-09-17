@@ -1,8 +1,9 @@
 /**
  * The board: one game, drawn and played.
  *
- * Shared by every slot — the global page, the object panel, the macro — because a board is a board.
- * What differs between slots is how much room it is given (`maxBoard`) and what surrounds it.
+ * Everything about one game lives here: the position, the clocks, the move list, the result card
+ * and the review. How much room it gets is the caller's to say (`maxBoard`), which is why the board
+ * is sized from its container rather than from the window.
  */
 import { useStarhiveContext, useTheme, useToast } from '@starhive/bridge'
 import { Badge, Button, Card } from '@starhive/ui'
@@ -85,7 +86,7 @@ export function Board({
   onCancelled,
 }: {
   gameId: string | undefined
-  /** The largest the board may be in this slot. A page can afford more than a macro block. */
+  /** The largest the board may be, whatever the room around it allows. */
   maxBoard?: number
   /** Called after the game is cancelled, so the caller can go back to wherever it came from. */
   onExit?: () => void
