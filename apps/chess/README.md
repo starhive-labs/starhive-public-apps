@@ -9,12 +9,15 @@ reasoning behind the model below lives.
 
 ## What you get
 
-| Slot | What it is |
-|---|---|
-| `globalPage` | Three tabs — **Play a game** (the two opponent choices, and open seats to take), **Your games** (badged with how many are waiting on you), **History** — and the board once you open a game |
-| `objectPanel` | The board on the game object itself, so opening a game in Starhive plays it |
-| `widget` | "Your move in N games", for a dashboard |
-| `macro` | A live board inside a page. The block remembers its game with `useMacroState()` |
+One surface, the `globalPage`: three tabs — **Play a game** (the two opponent choices, and open seats
+to take), **Your games** (badged with how many are waiting on you) and **History** — with the board
+taking over the page once you open a game.
+
+It used to mount into three more: an `objectPanel` drawing the board on the game object itself, a
+`widget` saying "Your move in N games" for a dashboard, and a `macro` block putting a live board in
+a page. They are gone. Removing a module from `manifest.yaml` is what removes it from the product,
+so an install that updates past 0.37.0 loses those mount points and any widget or block already
+placed stops rendering — the games themselves are untouched, because a game was never in the block.
 
 **The last two plies are lit on the board** — the newer one brightly, the one before it faintly. Two
 rather than one on purpose: in a correspondence game you come back hours later wanting to see both
@@ -80,9 +83,9 @@ would produce an unreadable board the moment a workspace chose a pale yellow or 
 and `src/chess/boardTheme.ts` has a test asserting no brand colour can. A brand with no hue worth
 keeping — a grey — falls back to Starhive blue rather than to a grey board.
 
-The board sizes itself from the room it is given, the height of the window and a per-slot ceiling —
-720px on the page, 520 in an object panel, 400 in a macro — with the move list beside it above 620px
-of width and underneath below that. The arithmetic is `src/components/boardLayout.ts`, kept pure and
+The board sizes itself from the room it is given, the height of the window and a ceiling the caller
+asks for — 720px on the page — with the move list beside it above 620px of width and underneath
+below that. The arithmetic is `src/components/boardLayout.ts`, kept pure and
 free of React so it can be checked.
 
 ## How a game works

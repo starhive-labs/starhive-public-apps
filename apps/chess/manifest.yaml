@@ -8,23 +8,16 @@
 # that cannot be added later.
 app:
   key: com.starhive.apps.chess
-  version: 0.36.0
+  version: 0.37.0
   description: Correspondence chess for your workspace. Every game is a native Starhive object.
   icon: extension
 
-# One bundle, four surfaces. The app reads `context.slot` and renders the matching screen.
+# One surface. There were four — an object panel on the game, a dashboard widget and a macro block
+# — and removing them from this list is what removes them from the product: an install that updates
+# to this version loses those mount points, so widgets and blocks already placed stop rendering.
 modules:
   globalPage:
     - { key: lobby, title: Chess, icon: extension, route: / }
-  # The game *is* an object, so opening it in Starhive shows the board on it.
-  objectPanel:
-    - { key: board, title: Board, route: / }
-  widget:
-    - { key: yourmove, title: Your move, route: / }
-  # No params: the block picks its game in place and remembers it with `useMacroState()`. A declared
-  # `gameId` param would mean pasting a UUID into the insert dialog.
-  macro:
-    - { key: board, title: Chess board, route: /, height: 480 }
 
 data:
   # `open`, not the default `restricted`: every read an app makes runs as the viewer, so with

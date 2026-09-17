@@ -1,36 +1,22 @@
-import { useStarhiveContext, useTheme } from '@starhive/bridge'
+import { useTheme } from '@starhive/bridge'
 import { StarhiveAppProvider } from '@starhive/ui'
 
 import { GlobalPage } from './slots/GlobalPage'
-import { Macro } from './slots/Macro'
-import { ObjectPanel } from './slots/ObjectPanel'
-import { Widget } from './slots/Widget'
 import { useApplyHostTheme } from './useApplyHostTheme'
 
-/** One bundle serves every module; `context.slot` says which screen this frame is. */
-function Screen() {
-  const { slot } = useStarhiveContext()
-
-  switch (slot) {
-    case 'objectPanel':
-      return <ObjectPanel />
-    case 'widget':
-      return <Widget />
-    case 'macro':
-      return <Macro />
-    case 'globalPage':
-    default:
-      return <GlobalPage />
-  }
-}
-
+/**
+ * One module, so no dispatch on `context.slot`.
+ *
+ * The app used to mount into four surfaces and branch here on which one this frame was. The other
+ * three are gone; if one comes back, the switch comes back with it.
+ */
 export function App() {
   const { colorScheme } = useTheme()
   useApplyHostTheme()
 
   return (
     <StarhiveAppProvider colorScheme={colorScheme}>
-      <Screen />
+      <GlobalPage />
     </StarhiveAppProvider>
   )
 }

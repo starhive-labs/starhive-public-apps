@@ -18,7 +18,7 @@ export type BoardLayout = { size: number; sideBySide: boolean }
 
 /**
  * Bounded by three things at once, and the smallest wins: the width this component was given, the
- * height of the window, and what the slot thinks is reasonable.
+ * height of the window, and the ceiling the caller asks for.
  *
  * Width alone is not enough — a board sized purely by width overflows the bottom of the page on a
  * laptop, and you scroll to see your own back rank.

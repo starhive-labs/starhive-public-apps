@@ -8,11 +8,9 @@ import { useEffect } from 'react'
  * carries a palette for each. So why this hook?
  *
  * Because the host doesn't only tell us *which* scheme — it sends the actual colors in
- * `context.theme`, and for some slots those are deliberately not the workspace defaults. A `widget`
- * is handed `background: 'transparent'` (the dashboard cell behind it already painted itself, and the
- * iframe is meant to blend into it) plus that cell's configured foreground as `text`. Nothing picks
- * those up unless the app applies them — an app that ignores `theme.colors` renders an opaque panel
- * sitting on someone's dashboard, in whichever scheme.
+ * `context.theme`, and it is the authority on them. An app that renders its own theme's idea of a
+ * background instead is one workspace customisation away from a panel that does not match the page
+ * it is sitting in.
  *
  * Written as inline custom properties on `:root`, which beat the stylesheet rules Mantine emits, so
  * a value the host sends wins and anything it omits keeps the theme's own light/dark value.
