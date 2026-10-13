@@ -1,4 +1,4 @@
-import { Anchor, Group, Progress, Stack, Text } from '@mantine/core'
+import { Alert, Anchor, Group, Progress, Stack, Text } from '@mantine/core'
 import { useAttributes, useBridge, useObjectQuery, useObjects } from '@starhive/bridge'
 import { Badge, Button, Card } from '@starhive/ui'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
@@ -6,11 +6,16 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { ATTR, ATTR_NAME, CODE_LINK_KEY, readLink, stateVariant, type StoredLink } from './codeLink'
 import { carriesKey } from './discover'
 import { forgetLinked, linkedThisSession, linkIdentity, rememberLinked } from './linked'
-import { type CodeLocator, type CodeState, gitlab } from './providers'
+import { type CodeLocator, type CodeState, gitlab, ProviderError } from './providers'
 import { SectionDivider } from './SectionDivider'
 
-/** What a live read came back with, per link object id. */
-type Live = Record<string, { state: CodeState } | { error: string }>
+/**
+ * What a live read came back with, per link object id.
+ *
+ * The status is kept with the error because a branch row needs it: a 404 means the branch has not
+ * been pushed yet, while a 401 or 403 means we could not look — and those must not read the same.
+ */
+type Live = Record<string, { state: CodeState } | { error: string; status?: number }>
 
 /**
  * What names a link within GitLab, for comparing one against another.
@@ -146,7 +151,14 @@ export function LinkList({
   const [search, setSearch] = useState<
     | { phase: 'unknown' }
     | { phase: 'searching'; key: string; done: number; total: number }
-    | { phase: 'settled'; message: string | null }
+    | {
+        phase: 'settled'
+        message: string | null
+        /** Some project could not be read — shown as an alert rather than a note. */
+        failed?: boolean
+        /** No project could be read, so nothing was learned and nothing can be created either. */
+        blocked?: boolean
+      }
   >({ phase: 'unknown' })
   const report = useRef(onLoaded)
   report.current = onLoaded
@@ -190,7 +202,10 @@ export function LinkList({
           if (active) setLive((current) => ({ ...current, [link.objectId]: { state } }))
         } catch (caught) {
           const message = caught instanceof Error ? caught.message : 'Could not reach GitLab.'
-          if (active) setLive((current) => ({ ...current, [link.objectId]: { error: message } }))
+          const status = caught instanceof ProviderError ? caught.status : undefined
+          if (active) {
+            setLive((current) => ({ ...current, [link.objectId]: { error: message, status } }))
+          }
         }
       }),
     )
@@ -330,10 +345,20 @@ export function LinkList({
           }
         }
 
-        if (active) {
+        if (active && searched === 0) {
+          // Nothing could be read at all, so nothing was learned — saying "nothing carries it" here
+          // is what made a rejected token look like a work item with no code behind it.
+          setSearch({
+            phase: 'settled',
+            failed: true,
+            blocked: true,
+            message: `Could not search GitLab for ${searchKey}. ${failures.join(' ')}`,
+          })
+        } else if (active) {
           const scope = `${searched} of ${projects.length} project${projects.length === 1 ? '' : 's'}`
           setSearch({
             phase: 'settled',
+            failed: failures.length > 0,
             message:
               hits === 0
                 ? `Searched ${scope} for ${searchKey} — nothing carries it` +
@@ -495,6 +520,8 @@ export function LinkList({
     const author = shown?.author || link.author
     const detail = shown?.detail
     const isBranch = link.kind === 'branch'
+    // Only a 404 — or no answer yet — means "not pushed". Any other failure means we could not look.
+    const notPushed = !result || !('error' in result) || result.status === 404
     const hasCommits = state !== 'no commits yet'
     const offerMergeRequest =
       isBranch && existsInGitLab(link) && hasCommits && !hasMergeRequest(link)
@@ -535,7 +562,7 @@ export function LinkList({
             </Text>
           )}
 
-          {isBranch && !existsInGitLab(link) && reachable && (
+          {isBranch && !existsInGitLab(link) && reachable && notPushed && (
             <Text size="xs" c="dimmed">
               Not in GitLab yet — push it and this fills itself in.
             </Text>
@@ -545,7 +572,7 @@ export function LinkList({
               Nothing committed to it yet, so there is nothing to open a merge request from.
             </Text>
           )}
-          {result && 'error' in result && !isBranch && (
+          {result && 'error' in result && (!isBranch || !notPushed) && (
             <Text size="xs" c="dimmed">
               Showing what we last saw — {result.error}
             </Text>
@@ -628,8 +655,12 @@ export function LinkList({
    * that would disprove it — otherwise the panel spends its first second telling someone to create a
    * branch that already exists, and they do. A work item that already has a branch is exempt: that
    * offer says "create another", which is not a claim about absence and is true whenever it is shown.
+   *
+   * Neither is offered when no project could be read at all: the search learned nothing, so "No branch
+   * yet" would be a guess, and creating one goes through the same token GitLab just refused.
    */
-  const offerReady = branches.length > 0 || search.phase === 'settled'
+  const blocked = search.phase === 'settled' && search.blocked === true
+  const offerReady = !blocked && (branches.length > 0 || search.phase === 'settled')
 
   const hasBranchBlock = branches.length > 0 || (Boolean(afterBranches) && offerReady)
 
@@ -656,11 +687,17 @@ export function LinkList({
         </Stack>
       )}
 
-      {search.phase === 'settled' && search.message && (
-        <Text size="xs" c="dimmed">
-          {search.message}
-        </Text>
-      )}
+      {search.phase === 'settled' &&
+        search.message &&
+        (search.failed ? (
+          <Alert color="red" variant="light">
+            <Text size="xs">{search.message}</Text>
+          </Alert>
+        ) : (
+          <Text size="xs" c="dimmed">
+            {search.message}
+          </Text>
+        ))}
 
       {unlinkError && (
         <Text size="sm" c="red">
