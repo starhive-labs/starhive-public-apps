@@ -85,11 +85,14 @@ type GitLabCommit = {
  * carrying the status rather than being swallowed.
  */
 function message(status: number): string {
-  // 401/403 and 404 are the same situation seen from two angles: GitLab hides a private project
-  // behind a 404 for an anonymous caller. Both mean "add a token", which is the only thing the
-  // reader can act on, so both say it.
-  if (status === 401 || status === 403) {
-    return 'GitLab refused the request. A private project needs a token — an admin adds one under Settings → Apps.'
+  // A 401 means a token was sent and GitLab rejected it — an anonymous caller is never asked to
+  // authenticate, it gets a 404 for a private project instead. So this is a token that has expired,
+  // been revoked or was pasted wrong, and nothing on this side will work until it is replaced.
+  if (status === 401) {
+    return 'GitLab rejected the access token — it may have expired or been revoked. An admin replaces it under Settings → Apps.'
+  }
+  if (status === 403) {
+    return 'GitLab refused the request. The access token may lack the scope or project access this needs — an admin checks it under Settings → Apps.'
   }
   if (status === 404) {
     return (
@@ -242,15 +245,27 @@ export const gitlab: Provider = {
     const base = `/api/v4/projects/${project(projectPath)}`
     const key = encodeURIComponent(term)
 
-    const [mergeRequests, branches] = await Promise.all([
+    const [mrResult, branchResult] = await Promise.allSettled([
       get<GitLabMergeRequest[]>(
         bridge,
         `${base}/merge_requests?scope=all&state=all&search=${key}&in=title,description&per_page=20`,
-      ).catch(() => [] as GitLabMergeRequest[]),
-      get<GitLabBranch[]>(bridge, `${base}/repository/branches?search=${key}&per_page=20`).catch(
-        () => [] as GitLabBranch[],
       ),
+      get<GitLabBranch[]>(bridge, `${base}/repository/branches?search=${key}&per_page=20`),
     ])
+
+    // One half failing alone is tolerated — a project with merge requests turned off answers 403 there
+    // and still has branches. But a rejected token fails everything, and both halves failing means the
+    // project could not be read at all. Either way an empty result would be a lie: it reads as "nothing
+    // carries this key", which sends someone to create a branch that may well exist.
+    const rejections = [mrResult, branchResult].flatMap((r) =>
+      r.status === 'rejected' ? [r.reason as unknown] : [],
+    )
+    const unauthorized = rejections.find((r) => r instanceof ProviderError && r.status === 401)
+    if (unauthorized) throw unauthorized
+    if (rejections.length === 2) throw rejections[0]
+
+    const mergeRequests = mrResult.status === 'fulfilled' ? mrResult.value : []
+    const branches = branchResult.status === 'fulfilled' ? branchResult.value : []
 
     const found: SearchHit[] = []
 

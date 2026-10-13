@@ -9,7 +9,7 @@
 # no inbound webhook, so there is nothing to keep a stored copy fresh — see README.
 app:
   key: com.starhive.apps.gitlab
-  version: 0.30.0
+  version: 0.30.1
   description: See the GitLab merge requests and branches behind a work item, and start new ones as you go.
 
 modules:
