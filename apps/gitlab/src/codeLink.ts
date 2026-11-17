@@ -55,12 +55,28 @@ export const ATTR_NAME = {
  */
 export type LinkTarget = { id: string; label: string; typeId: string }
 
-/** The attribute values that tie a new link to [target], by key. */
-export function targetValues(target: LinkTarget): [string, string][] {
+/** A target known only by its id — what a create falls back to before the label has been read. */
+export function targetOf(id: string): LinkTarget {
+  return { id, label: '', typeId: '' }
+}
+
+/**
+ * The attribute values that tie a new link to [target], built with the caller's own [value] — which
+ * resolves a key to an attribute id and drops a blank — so every place that creates a link writes
+ * exactly the same fields.
+ *
+ * A label not read yet is left blank rather than filled with the id: `useWorkItem` shows the stored
+ * label as the work item's name when the object cannot be read, and a uuid there is worse than
+ * nothing.
+ */
+export function targetAttributes<T>(
+  target: LinkTarget,
+  value: (key: string, text: string) => T[],
+): T[] {
   return [
-    [ATTR.workItemId, target.id],
-    [ATTR.workItemLabel, target.label || target.id],
-    [ATTR.workItemTypeId, target.typeId],
+    ...value(ATTR.workItemId, target.id),
+    ...value(ATTR.workItemLabel, target.label),
+    ...value(ATTR.workItemTypeId, target.typeId),
   ]
 }
 
@@ -74,6 +90,19 @@ export function targetValues(target: LinkTarget): [string, string][] {
 export function linksOf(workItemId: string): string {
   return `"${ATTR_NAME.workItemId}" == "${workItemId}"`
 }
+
+/**
+ * StarQL for every link made since 0.31.0 — the ones that know their work item.
+ *
+ * Links made before then point at their work item only through the retired reference, so nothing
+ * finds them per work item, and the key search links that work again with a row of its own. Left
+ * counted, the old row and its replacement would count every merge request twice. Every read across
+ * all links filters on this; the settings page offers to remove the old rows outright.
+ */
+export const CURRENT_LINKS = `"${ATTR_NAME.workItemId}" is not empty`
+
+/** StarQL for the links made before 0.31.0 — the complement of [CURRENT_LINKS]. */
+export const LEGACY_LINKS = `"${ATTR_NAME.workItemId}" is empty`
 
 export type CodeConfig = {
   /**

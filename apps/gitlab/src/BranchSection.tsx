@@ -16,7 +16,7 @@ import {
   defaultProject,
   type LinkTarget,
   linksOf,
-  targetValues,
+  targetAttributes,
 } from './codeLink'
 import { CreateBranchModal } from './CreateBranchModal'
 import type { CodeState } from './providers'
@@ -111,7 +111,7 @@ export function BranchSection({
 
     await objects.create(CODE_LINK_KEY, [
       ...value(ATTR.title, branch),
-      ...targetValues(target).flatMap(([key, text]) => value(key, text)),
+      ...targetAttributes(target, value),
       ...value(ATTR.project, project),
       ...value(ATTR.kind, 'branch'),
       ...value(ATTR.ref, branch),

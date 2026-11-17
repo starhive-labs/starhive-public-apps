@@ -4,7 +4,7 @@ import { Button, TextInput } from '@starhive/ui'
 import { useMemo, useState } from 'react'
 
 import { invalidate } from './cache'
-import { ATTR, CODE_LINK_KEY, type LinkTarget, targetValues } from './codeLink'
+import { ATTR, CODE_LINK_KEY, type LinkTarget, targetAttributes } from './codeLink'
 import { locateUrl } from './providers'
 
 /**
@@ -29,8 +29,6 @@ export function LinkForm({
   const objects = useObjects()
   const toast = useToast()
   const columns = useAttributes(CODE_LINK_KEY, Object.values(ATTR))
-  // Only to name the type in a failure. `types.list` is metadata, not object data, and is the one
-  // read that is not scoped to the app's own types — which is why the name is available at all.
 
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -85,7 +83,7 @@ export function LinkForm({
       try {
         await objects.create(CODE_LINK_KEY, [
           ...value(ATTR.title, state.title),
-          ...targetValues(target).flatMap(([key, text]) => value(key, text)),
+          ...targetAttributes(target, value),
           ...value(ATTR.project, locator.project),
           ...value(ATTR.kind, locator.kind),
           ...value(ATTR.ref, locator.ref),
@@ -95,7 +93,14 @@ export function LinkForm({
         ])
       } catch (caught) {
         const detail = caught instanceof Error ? caught.message : 'unknown error'
-        setError(`GitLab was read fine, but Starhive refused to save the link: ${detail}.`)
+        // GitLab was fine, so this is Starhive's refusal, and saying only its code sends someone to
+        // re-check the URL they pasted. The usual reason is permission: a link is saved as the person
+        // creating it, in the app's own GitLab space.
+        setError(
+          `GitLab was read fine, but Starhive refused to save the link: ${detail}. Links are saved as ` +
+            'you, in the app’s GitLab space — if you cannot create objects there, an admin can give ' +
+            'you access to it.',
+        )
         return
       }
 

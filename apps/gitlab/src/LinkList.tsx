@@ -11,7 +11,8 @@ import {
   readLink,
   stateVariant,
   type StoredLink,
-  targetValues,
+  targetAttributes,
+  targetOf,
 } from './codeLink'
 import { carriesKey } from './discover'
 import { forgetLinked, linkedThisSession, linkIdentity, rememberLinked } from './linked'
@@ -311,9 +312,7 @@ export function LinkList({
       rememberLinked(workItemId, linkIdentity(item))
       await objects.create(CODE_LINK_KEY, [
         ...value(ATTR.title, item.title),
-        ...targetValues(targetRef.current ?? { id: workItemId, label: '', typeId: '' }).flatMap(
-          ([key, text]) => value(key, text),
-        ),
+        ...targetAttributes(targetRef.current ?? targetOf(workItemId), value),
         ...value(ATTR.project, item.project),
         ...value(ATTR.kind, item.kind),
         ...value(ATTR.ref, item.ref),

@@ -49,7 +49,8 @@ name and type as text — the same model the Time Tracking app uses. Links are f
 strict `==` on the id, which matches the untokenized value; plain `=` would split a uuid into tokens
 and match other ids. The old `workItem` reference is `deprecated: true`: links made before 0.31.0
 keep their values in the workspace but are no longer read, and the key search links that work again
-on the next open. The cost is that a link no longer shows up as a native relation on the work item
+on the next open. Every read across links filters those old rows out (`CURRENT_LINKS`), so a merge
+request is not counted twice, and the settings page offers to remove them. The cost is that a link no longer shows up as a native relation on the work item
 in Starhive itself; the GitLab panel is where it is seen.
 
 **Nothing refreshes on its own.** Apps have no background execution and no inbound webhook, so there

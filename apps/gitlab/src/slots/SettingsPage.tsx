@@ -3,6 +3,7 @@ import {
   type BridgeType,
   useBridge,
   useConfig,
+  useObjectAggregate,
   useStarhiveContext,
   useToast,
   useTypes,
@@ -12,7 +13,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
   branchNameFrom,
+  CODE_LINK_KEY,
   DEFAULT_BRANCH_TEMPLATE,
+  LEGACY_LINKS,
   readConfig,
   unknownTokens,
   WORK_ITEM_KEY,
@@ -132,6 +135,12 @@ export function SettingsPage() {
   }, [types, workItemTypes, defaultWorkItemTypeId])
 
   async function save() {
+    // An empty list would hide the panel on every object and give the app nothing to read, while
+    // this page went on showing the default as chosen — so it is refused rather than saved.
+    if (workItemTypes.length === 0) {
+      setError('Pick at least one work item type — with none, the GitLab panel appears nowhere.')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -212,6 +221,7 @@ export function SettingsPage() {
             data={typeOptions}
             value={workItemTypes}
             onChange={setWorkItemTypes}
+            error={workItemTypes.length === 0 ? 'Pick at least one type.' : undefined}
             disabled={typesLoading}
             searchable
           />
@@ -278,11 +288,13 @@ export function SettingsPage() {
               {error}
             </Text>
           )}
-          <Button onClick={save} disabled={saving}>
+          <Button onClick={save} disabled={saving || workItemTypes.length === 0}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </Stack>
       </Card>
+
+      <LegacyLinks />
     </Stack>
   )
 }
@@ -312,4 +324,85 @@ function useChosenTypes(typeIds: string[]): BridgeType[] {
   }, [bridge, fingerprint])
 
   return types
+}
+
+/**
+ * The links made before 0.31.0, and a way to remove them.
+ *
+ * Those links point at their work item only through the retired `workItem` reference, so nothing in
+ * the app reads them any more: the panel cannot find them per work item, and every read across links
+ * leaves them out (`CURRENT_LINKS`) so they are not counted beside the rows the key search made to
+ * replace them. They are still objects in the workspace, though, and still show in Starhive's own
+ * views of the GitLab space — so an admin can clear them here. Nothing else ever deletes them.
+ *
+ * Two clicks, because the iframe is sandboxed without `allow-modals` and `confirm()` does nothing:
+ * the first says what will happen, the second does it. Shown only while there is something to remove.
+ */
+function LegacyLinks() {
+  const bridge = useBridge()
+  const toast = useToast()
+  const count = useObjectAggregate({ typeKey: CODE_LINK_KEY, where: LEGACY_LINKS, operation: 'count' })
+  const [confirming, setConfirming] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  const total = count.data?.value ?? count.data?.total ?? 0
+  if (count.isLoading || total === 0) return null
+
+  async function remove() {
+    setRemoving(true)
+    setFailure(null)
+    let removed = 0
+    try {
+      // Page by page from the top until none are left. Bounded, so a remove that keeps failing
+      // silently cannot spin; what is left is reported and the button stays.
+      for (let pass = 0; pass < 50; pass += 1) {
+        const page = await bridge.objects.query(LEGACY_LINKS, { typeKey: CODE_LINK_KEY, limit: 100 })
+        if (page.result.length === 0) break
+        for (const link of page.result) {
+          await bridge.objects.remove(link.id)
+          removed += 1
+        }
+      }
+      toast(`Removed ${removed} old ${removed === 1 ? 'link' : 'links'}`, 'success')
+    } catch (caught) {
+      setFailure(
+        `Stopped after removing ${removed}: ${caught instanceof Error ? caught.message : 'a link could not be removed'}.`,
+      )
+    } finally {
+      setRemoving(false)
+      setConfirming(false)
+      count.refetch()
+    }
+  }
+
+  return (
+    <Card>
+      <Stack gap="sm">
+        <Text fw={600}>Links from before 0.31.0</Text>
+        <Text size="sm" c="dimmed">
+          {total} {total === 1 ? 'link was' : 'links were'} made before links stored their work item’s
+          id. The app no longer reads {total === 1 ? 'it' : 'them'}, and opening a work item links its
+          branches and merge requests again. Removing {total === 1 ? 'it' : 'them'} deletes only these
+          old Code Link objects — nothing in GitLab, and no work item.
+        </Text>
+        {failure && (
+          <Text size="sm" c="red">
+            {failure}
+          </Text>
+        )}
+        <div>
+          {confirming ? (
+            <Button onClick={remove} disabled={removing}>
+              {removing ? 'Removing…' : `Remove ${total} old ${total === 1 ? 'link' : 'links'}`}
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={() => setConfirming(true)}>
+              Remove old links…
+            </Button>
+          )}
+        </div>
+      </Stack>
+    </Card>
+  )
 }
