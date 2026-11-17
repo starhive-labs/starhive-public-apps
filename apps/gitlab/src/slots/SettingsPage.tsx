@@ -1,21 +1,21 @@
-import { Alert, Stack, Text, Textarea, Title } from '@mantine/core'
+import { MultiSelect, Stack, Text, Textarea, Title } from '@mantine/core'
 import {
+  type BridgeType,
   useBridge,
   useConfig,
-  useAttribute,
-  useObjectQuery,
+  useObjectAggregate,
   useStarhiveContext,
   useToast,
-  useTypeById,
   useTypes,
 } from '@starhive/bridge'
-import { Badge, Button, Card, Select, TextInput } from '@starhive/ui'
+import { Badge, Button, Card, TextInput } from '@starhive/ui'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   branchNameFrom,
   CODE_LINK_KEY,
   DEFAULT_BRANCH_TEMPLATE,
+  LEGACY_LINKS,
   readConfig,
   unknownTokens,
   WORK_ITEM_KEY,
@@ -23,7 +23,7 @@ import {
 import { gitlab } from '../providers'
 import { useRemoteStatus } from '../useRemoteStatus'
 
-/** Admin settings: which type a link may point at, and which GitLab project to search. */
+/** Admin settings: which types the app works in, and which GitLab projects to search. */
 export function SettingsPage() {
   const { typeKeyToId, user } = useStarhiveContext()
   const { config, isLoading, setConfig } = useConfig()
@@ -31,34 +31,30 @@ export function SettingsPage() {
   const reachable = useRemoteStatus('gitlab')
   const toast = useToast()
 
-  // One existing link locks the work item type: changing it would orphan every reference already
-  // written, and those references are the only thing tying code to a work item.
-  const { data: links, isLoading: linksLoading } = useObjectQuery('order by Created desc', {
-    typeKey: CODE_LINK_KEY,
-    limit: 1,
-  })
-
   const defaultWorkItemTypeId = typeKeyToId[WORK_ITEM_KEY] ?? ''
-  const [workItemType, setWorkItemType] = useState('')
+  const [workItemTypes, setWorkItemTypes] = useState<string[]>([])
   const [projects, setProjects] = useState('')
   const [branchNaming, setBranchNaming] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const bridge = useBridge()
+
   /*
-   * The chosen type's own attributes, which are what a naming template may name.
+   * The chosen types' own attributes, which are what a naming template may name.
    *
-   * Read here rather than described in help text: the tokens available depend on a type this app
-   * does not own and an admin picked a moment ago, so the only honest list is the one fetched.
+   * Read here rather than described in help text: the tokens available depend on types this app
+   * does not own and an admin picked a moment ago, so the only honest list is the one fetched. Every
+   * type's attributes count — a token resolves by name on whichever work item a branch is made for,
+   * so a token one of the types has is a real token.
    */
-  const target = useTypeById(workItemType || undefined)
+  const chosenTypes = useChosenTypes(workItemTypes)
   const attributeNames = useMemo(
-    () => (target.data?.attributes ?? []).map((attribute) => attribute.name),
-    [target.data],
+    () => [...new Set(chosenTypes.flatMap((type) => type.attributes.map((attribute) => attribute.name)))],
+    [chosenTypes],
   )
   const unknown = unknownTokens(branchNaming, attributeNames)
 
-  const bridge = useBridge()
   const [checking, setChecking] = useState(false)
   const [check, setCheck] = useState<{ identity: string; projects: string[] } | null>(null)
 
@@ -100,30 +96,15 @@ export function SettingsPage() {
   useEffect(() => {
     if (isLoading) return
     const parsed = readConfig(config)
-    setWorkItemType(parsed.workItemType ?? defaultWorkItemTypeId)
+    setWorkItemTypes(
+      parsed.workItemTypes.length > 0
+        ? parsed.workItemTypes
+        : [defaultWorkItemTypeId].filter(Boolean),
+    )
     setProjects(parsed.projects.join('\n'))
     setBranchNaming(parsed.branchNaming)
   }, [config, isLoading, defaultWorkItemTypeId])
 
-  const locked = (links?.result.length ?? 0) > 0
-
-  /*
-   * What a link's reference actually points at, against what this page says it should.
-   *
-   * A config-bound reference target is re-pointed by the platform when the setting changes, and if
-   * that does not happen the app looks fine and every write fails with a bare INVALID_VALUE - the
-   * reference still demands the old type while the setting advertises the new one. The app can see
-   * both, so it can say so instead of leaving someone to discover it one failed link at a time.
-   */
-  const linkReference = useAttribute(CODE_LINK_KEY, 'workItem')
-  const boundTypeId = linkReference.data?.configuration?.targetTypeId
-  const savedWorkItemType =
-    typeof config?.workItemType === 'string' ? config.workItemType : undefined
-  const mismatched = Boolean(
-    boundTypeId && savedWorkItemType && boundTypeId !== savedWorkItemType,
-  )
-  const nameOfType = (id: string | undefined) =>
-    (types ?? []).find((type) => type.id === id)?.name ?? id?.slice(0, 8) ?? 'unknown'
   /*
    * An attribute standing in for its own value, so a template naming one previews as something.
    *
@@ -144,21 +125,30 @@ export function SettingsPage() {
       value: type.id,
       label: `${type.name}${type.id === defaultWorkItemTypeId ? ' (default)' : ''}`,
     }))
-    // Keep the current selection visible even if it isn't in the fetched list (e.g. another space).
-    if (workItemType && !list.some((type) => type.value === workItemType)) {
-      list.unshift({ value: workItemType, label: `Selected type (${workItemType.slice(0, 8)}…)` })
+    // Keep every current selection visible even if it isn't in the fetched list (e.g. another space).
+    for (const id of workItemTypes) {
+      if (!list.some((type) => type.value === id)) {
+        list.unshift({ value: id, label: `Selected type (${id.slice(0, 8)}…)` })
+      }
     }
     return list
-  }, [types, workItemType, defaultWorkItemTypeId])
+  }, [types, workItemTypes, defaultWorkItemTypeId])
 
   async function save() {
+    // An empty list would hide the panel on every object and give the app nothing to read, while
+    // this page went on showing the default as chosen — so it is refused rather than saved.
+    if (workItemTypes.length === 0) {
+      setError('Pick at least one work item type — with none, the GitLab panel appears nowhere.')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
       // Stored as a list; the old singular `project` is dropped on the first save, and readConfig
       // still understands it for an install that has not saved since.
       await setConfig({
-        workItemType,
+        // Still saved under the setting's original key, now as a list.
+        workItemType: workItemTypes,
         projects: listedProjects,
         branchNaming: branchNaming.trim(),
         // Blanked, not left: `readConfig` upgrades an old prefix into a template only while there is
@@ -173,7 +163,7 @@ export function SettingsPage() {
     }
   }
 
-  if (isLoading || linksLoading) {
+  if (isLoading) {
     return (
       <Stack gap="md" p="lg">
         <Title order={3}>GitLab</Title>
@@ -223,29 +213,16 @@ export function SettingsPage() {
         </Stack>
       </Card>
 
-      {mismatched && (
-        <Alert color="red" variant="light" title="Links still point at the old type">
-          A link’s reference targets <b>{nameOfType(boundTypeId)}</b>, but this page is set to{' '}
-          <b>{nameOfType(savedWorkItemType)}</b>. Until those agree, linking anything fails with
-          INVALID_VALUE — the reference refuses an object of any other type. Saving this page again
-          asks the platform to re-point it; if it stays out of step, the re-point is failing rather
-          than not being asked for.
-        </Alert>
-      )}
-
       <Card>
         <Stack gap="sm">
-          <Select
-            label="Work item type"
-            description={
-              locked
-                ? 'Locked: links already point at this type, and changing it would orphan them.'
-                : 'The type a Code panel may link from. Point it at the type your team plans in.'
-            }
+          <MultiSelect
+            label="Work item types"
+            description="The types that get a GitLab panel and can have code linked to them. Pick every type your team plans in; types that extend these count too. Changing the list later is safe — links already made keep their work item."
             data={typeOptions}
-            value={workItemType || null}
-            onChange={(value) => setWorkItemType(value ?? '')}
-            disabled={locked || typesLoading}
+            value={workItemTypes}
+            onChange={setWorkItemTypes}
+            error={workItemTypes.length === 0 ? 'Pick at least one type.' : undefined}
+            disabled={typesLoading}
             searchable
           />
           <Textarea
@@ -288,7 +265,7 @@ export function SettingsPage() {
           </Text>
           {attributeNames.length > 0 && (
             <Text size="xs" c="dimmed">
-              Attributes of {target.data?.name}, usable by name:{' '}
+              Attributes of {chosenTypes.map((type) => type.name).join(', ')}, usable by name:{' '}
               {attributeNames.map((name) => `{${name}}`).join(' ')}
             </Text>
           )}
@@ -300,8 +277,8 @@ export function SettingsPage() {
             <Text size="xs" c="red">
               {unknown.map((name) => `{${name}}`).join(', ')}{' '}
               {unknown.length > 1 ? 'resolve' : 'resolves'} to nothing —{' '}
-              {target.data
-                ? `neither a role nor an attribute of ${target.data.name}.`
+              {chosenTypes.length > 0
+                ? `neither a role nor an attribute of ${chosenTypes.map((type) => type.name).join(' or ')}.`
                 : 'no work item type is chosen yet, so only {initials}, {key} and {label} can be checked.'}
             </Text>
           )}
@@ -311,11 +288,121 @@ export function SettingsPage() {
               {error}
             </Text>
           )}
-          <Button onClick={save} disabled={saving}>
+          <Button onClick={save} disabled={saving || workItemTypes.length === 0}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </Stack>
       </Card>
+
+      <LegacyLinks />
     </Stack>
+  )
+}
+
+/**
+ * The schemas of the types an admin has chosen, as they are chosen.
+ *
+ * A type that cannot be read is left out rather than failing the page: it only costs the token list
+ * that type's attributes, and the setting itself still saves.
+ */
+function useChosenTypes(typeIds: string[]): BridgeType[] {
+  const bridge = useBridge()
+  const [types, setTypes] = useState<BridgeType[]>([])
+  const fingerprint = typeIds.join('|')
+
+  useEffect(() => {
+    let active = true
+    const ids = fingerprint.split('|').filter(Boolean)
+    void Promise.all(
+      ids.map((typeId) => bridge.invoke('types.get', { typeId }).catch(() => null)),
+    ).then((read) => {
+      if (active) setTypes(read.filter((type): type is BridgeType => type !== null))
+    })
+    return () => {
+      active = false
+    }
+  }, [bridge, fingerprint])
+
+  return types
+}
+
+/**
+ * The links made before 0.31.0, and a way to remove them.
+ *
+ * Those links point at their work item only through the retired `workItem` reference, so nothing in
+ * the app reads them any more: the panel cannot find them per work item, and every read across links
+ * leaves them out (`CURRENT_LINKS`) so they are not counted beside the rows the key search made to
+ * replace them. They are still objects in the workspace, though, and still show in Starhive's own
+ * views of the GitLab space — so an admin can clear them here. Nothing else ever deletes them.
+ *
+ * Two clicks, because the iframe is sandboxed without `allow-modals` and `confirm()` does nothing:
+ * the first says what will happen, the second does it. Shown only while there is something to remove.
+ */
+function LegacyLinks() {
+  const bridge = useBridge()
+  const toast = useToast()
+  const count = useObjectAggregate({ typeKey: CODE_LINK_KEY, where: LEGACY_LINKS, operation: 'count' })
+  const [confirming, setConfirming] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  const total = count.data?.value ?? count.data?.total ?? 0
+  if (count.isLoading || total === 0) return null
+
+  async function remove() {
+    setRemoving(true)
+    setFailure(null)
+    let removed = 0
+    try {
+      // Page by page from the top until none are left. Bounded, so a remove that keeps failing
+      // silently cannot spin; what is left is reported and the button stays.
+      for (let pass = 0; pass < 50; pass += 1) {
+        const page = await bridge.objects.query(LEGACY_LINKS, { typeKey: CODE_LINK_KEY, limit: 100 })
+        if (page.result.length === 0) break
+        for (const link of page.result) {
+          await bridge.objects.remove(link.id)
+          removed += 1
+        }
+      }
+      toast(`Removed ${removed} old ${removed === 1 ? 'link' : 'links'}`, 'success')
+    } catch (caught) {
+      setFailure(
+        `Stopped after removing ${removed}: ${caught instanceof Error ? caught.message : 'a link could not be removed'}.`,
+      )
+    } finally {
+      setRemoving(false)
+      setConfirming(false)
+      count.refetch()
+    }
+  }
+
+  return (
+    <Card>
+      <Stack gap="sm">
+        <Text fw={600}>Links from before 0.31.0</Text>
+        <Text size="sm" c="dimmed">
+          {total} {total === 1 ? 'link was' : 'links were'} made before links stored their work item’s
+          id. The app no longer reads {total === 1 ? 'it' : 'them'}, and opening a work item links its
+          branches and merge requests again. Removing {total === 1 ? 'it' : 'them'} deletes only these
+          old Code Link objects — nothing in GitLab, and no work item.
+        </Text>
+        {failure && (
+          <Text size="sm" c="red">
+            {failure}
+          </Text>
+        )}
+        <div>
+          {confirming ? (
+            <Button onClick={remove} disabled={removing}>
+              {removing ? 'Removing…' : `Remove ${total} old ${total === 1 ? 'link' : 'links'}`}
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={() => setConfirming(true)}>
+              Remove old links…
+            </Button>
+          )}
+        </div>
+      </Stack>
+    </Card>
   )
 }

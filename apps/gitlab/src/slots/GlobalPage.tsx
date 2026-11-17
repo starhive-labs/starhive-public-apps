@@ -10,7 +10,15 @@ import { Badge, Button, Card } from '@starhive/ui'
 import { useEffect, useMemo, useState } from 'react'
 
 import { invalidateAll } from '../cache'
-import { ATTR, ATTR_NAME, CODE_LINK_KEY, daysSince, readConfig, readLink } from '../codeLink'
+import {
+  ATTR,
+  ATTR_NAME,
+  CODE_LINK_KEY,
+  CURRENT_LINKS,
+  daysSince,
+  readConfig,
+  readLink,
+} from '../codeLink'
 import { gitlab, type ProjectMergeRequest } from '../providers'
 import { SectionDivider } from '../SectionDivider'
 import { StatTile } from '../StatTile'
@@ -58,13 +66,23 @@ export function GlobalPage() {
   const { projects } = readConfig(config)
 
   const columns = useAttributes(CODE_LINK_KEY, Object.values(ATTR))
-  const links = useObjectQuery('order by Created desc', { typeKey: CODE_LINK_KEY, limit: 200 })
+  // Links made since 0.31.0 only: an older row and the one the key search made to replace it would
+  // otherwise both be counted. See CURRENT_LINKS.
+  const links = useObjectQuery(`${CURRENT_LINKS} order by Created desc`, {
+    typeKey: CODE_LINK_KEY,
+    limit: 200,
+  })
 
   // Counted by the index rather than by tallying rows, so these stay right past the 200 above.
-  const byKind = useObjectAggregate({ typeKey: CODE_LINK_KEY, operation: 'count', groupBy: 'kind' })
+  const byKind = useObjectAggregate({
+    typeKey: CODE_LINK_KEY,
+    where: CURRENT_LINKS,
+    operation: 'count',
+    groupBy: 'kind',
+  })
   const byState = useObjectAggregate({
     typeKey: CODE_LINK_KEY,
-    where: `"${ATTR_NAME.kind}" = "merge-request"`,
+    where: `${CURRENT_LINKS} and "${ATTR_NAME.kind}" = "merge-request"`,
     operation: 'count',
     groupBy: 'state',
   })

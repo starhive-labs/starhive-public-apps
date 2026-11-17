@@ -1,10 +1,10 @@
 import { Stack, Text } from '@mantine/core'
-import { useAttributes, useBridge, useObjects, useToast, useTypes } from '@starhive/bridge'
+import { useAttributes, useBridge, useObjects, useToast } from '@starhive/bridge'
 import { Button, TextInput } from '@starhive/ui'
 import { useMemo, useState } from 'react'
 
 import { invalidate } from './cache'
-import { ATTR, CODE_LINK_KEY } from './codeLink'
+import { ATTR, CODE_LINK_KEY, type LinkTarget, targetAttributes } from './codeLink'
 import { locateUrl } from './providers'
 
 /**
@@ -16,11 +16,12 @@ import { locateUrl } from './providers'
  * link's own copy, shown whenever a later live read cannot be made.
  */
 export function LinkForm({
-  workItemId,
+  target,
   reachable,
   onLinked,
 }: {
-  workItemId: string
+  /** The work item the pasted URL is linked to. */
+  target: LinkTarget
   reachable: boolean
   onLinked: () => void
 }) {
@@ -28,9 +29,6 @@ export function LinkForm({
   const objects = useObjects()
   const toast = useToast()
   const columns = useAttributes(CODE_LINK_KEY, Object.values(ATTR))
-  // Only to name the type in a failure. `types.list` is metadata, not object data, and is the one
-  // read that is not scoped to the app's own types — which is why the name is available at all.
-  const { data: types } = useTypes()
 
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -72,7 +70,7 @@ export function LinkForm({
         return id && text ? [{ attributeId: id, values: [text] }] : []
       }
 
-      const missing = [ATTR.title, ATTR.workItem, ATTR.project, ATTR.kind, ATTR.ref].filter(
+      const missing = [ATTR.title, ATTR.workItemId, ATTR.project, ATTR.kind, ATTR.ref].filter(
         (key) => !attributeIdOf(key),
       )
       if (missing.length > 0) {
@@ -85,7 +83,7 @@ export function LinkForm({
       try {
         await objects.create(CODE_LINK_KEY, [
           ...value(ATTR.title, state.title),
-          ...value(ATTR.workItem, workItemId),
+          ...targetAttributes(target, value),
           ...value(ATTR.project, locator.project),
           ...value(ATTR.kind, locator.kind),
           ...value(ATTR.ref, locator.ref),
@@ -95,16 +93,13 @@ export function LinkForm({
         ])
       } catch (caught) {
         const detail = caught instanceof Error ? caught.message : 'unknown error'
-        // Name the type the reference actually demands. "INVALID_VALUE" on its own sends someone
-        // looking at the URL they pasted, when the problem is which object they are standing on.
-        const target = columns.data.find((column) => (column.key ?? column.name) === ATTR.workItem)
-          ?.configuration?.targetTypeId
-        const targetName = types?.find((type) => type.id === target)?.name
+        // GitLab was fine, so this is Starhive's refusal, and saying only its code sends someone to
+        // re-check the URL they pasted. The usual reason is permission: a link is saved as the person
+        // creating it, in the app's own GitLab space.
         setError(
-          `GitLab was read fine, but Starhive refused to save the link: ${detail}. ` +
-            (targetName
-              ? `A link may only point at a ${targetName}, so this fails on an object of any other type. If this object is a ${targetName}, the app’s settings page will say whether its reference is still pointing at the old type.`
-              : 'A link points at the work item type set on this app’s settings page, so this fails on an object of any other type.'),
+          `GitLab was read fine, but Starhive refused to save the link: ${detail}. Links are saved as ` +
+            'you, in the app’s GitLab space — if you cannot create objects there, an admin can give ' +
+            'you access to it.',
         )
         return
       }

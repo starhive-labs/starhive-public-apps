@@ -1,11 +1,13 @@
 import { displayOf, useAttributes, useObject, useObjectQuery, useTypeById } from '@starhive/bridge'
 import { useMemo } from 'react'
 
-import { ATTR, ATTR_NAME, CODE_LINK_KEY } from './codeLink'
+import { ATTR, CODE_LINK_KEY, linksOf } from './codeLink'
 
 export type WorkItem = {
   /** The work item's own label — the value of the attribute its type marks `isLabel`. */
   label?: string
+  /** Its type, which a link records so it stays meaningful if that type leaves the setting. */
+  typeId?: string
   /** Its SEQUENCE value, when the type has one and the app is allowed to read the object. */
   sequence?: string
   /**
@@ -34,16 +36,15 @@ export type WorkItem = {
  * What the panel can learn about the object it is mounted on.
  *
  * The object is readable whichever type it is, now that the host lets an app read the types its own
- * config-bound references point at — this app writes a `workItem` reference to it, so it may read it
- * back. So the label is the value of the attribute its type marks `isLabel` (not the first attribute
+ * nominated types — this app declares the `workItemType` setting as a read scope, so it may read
+ * it. So the label is the value of the attribute its type marks `isLabel` (not the first attribute
  * that happens to hold something, and not one named by guesswork: `isLabel` is the type's own answer
  * to "what is this object called"), and a `SEQUENCE` attribute is read the same way, on the app's own
  * `Work Item` and on whatever type an admin pointed the setting at alike.
  *
- * The long way round is kept as a fallback rather than deleted: the host resolves a reference's
- * target label onto the value it returns, so this app's own link row still tells us the name of the
- * work item even against a host too old to allow the direct read, or if the object goes unreadable
- * for a reason of its own — a permission, a deletion.
+ * The long way round is kept as a fallback rather than deleted: every link records the work item's
+ * label as it read when the link was made, so this app's own link row still tells us the name of
+ * the work item if the object goes unreadable for a reason of its own — a permission, a deletion.
  */
 export function useWorkItem(objectId: string | undefined): WorkItem {
   // Rejects for a work item outside this app's scope. That is an answer, not a failure — it decides
@@ -51,9 +52,9 @@ export function useWorkItem(objectId: string | undefined): WorkItem {
   const { data: object, isLoading: objectLoading, error: objectError } = useObject(objectId)
   const { data: type, isLoading: typeLoading, error: typeError } = useTypeById(object?.typeId)
 
-  const linkColumns = useAttributes(CODE_LINK_KEY, [ATTR.workItem])
+  const linkColumns = useAttributes(CODE_LINK_KEY, [ATTR.workItemLabel])
   const { data: links, isLoading: linksLoading } = useObjectQuery(
-    objectId ? `"${ATTR_NAME.workItem}" = objectId("${objectId}") order by Created desc` : '',
+    objectId ? `${linksOf(objectId)} order by Created desc` : '',
     { typeKey: CODE_LINK_KEY, limit: 1 },
   )
 
@@ -128,6 +129,7 @@ export function useWorkItem(objectId: string | undefined): WorkItem {
 
   return {
     label: firstHand.label ?? fromOurOwnRow,
+    typeId: object?.typeId,
     sequence: firstHand.sequence,
     attributes: firstHand.attributes,
     attributeNames: firstHand.attributeNames,

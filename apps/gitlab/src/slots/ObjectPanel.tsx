@@ -7,7 +7,7 @@ import { BranchSection } from '../BranchSection'
 import { InfoDot } from '../InfoDot'
 import { SectionDivider } from '../SectionDivider'
 import { invalidateAll } from '../cache'
-import { readConfig } from '../codeLink'
+import { type LinkTarget, readConfig } from '../codeLink'
 import { searchTermFor } from '../discover'
 import { LinkForm } from '../LinkForm'
 import { LinkList } from '../LinkList'
@@ -64,6 +64,14 @@ export function ObjectPanel() {
 
   const { projects, branchNaming } = readConfig(config)
 
+  // What a new link records about the object it belongs to. The label and type are read from the
+  // object; while that read is in flight they are blank, and the id alone still ties the link.
+  const target: LinkTarget = {
+    id: objectId,
+    label: workItem.label ?? '',
+    typeId: workItem.typeId ?? '',
+  }
+
   /*
    * What GitLab is searched for, or nothing.
    *
@@ -108,6 +116,7 @@ export function ObjectPanel() {
       <LinkList
         key={key}
         workItemId={objectId}
+        target={target}
         reachable={reachable}
         projects={projects}
         searchKey={searchKey}
@@ -121,6 +130,7 @@ export function ObjectPanel() {
             <Card>
               <BranchSection
                 workItemId={objectId}
+                target={target}
                 workItem={workItem}
                 projects={projects}
                 branchNaming={branchNaming}
@@ -132,6 +142,7 @@ export function ObjectPanel() {
             // No card: an offer that is not the next step should not look like one.
             <BranchSection
               workItemId={objectId}
+              target={target}
               workItem={workItem}
               projects={projects}
               branchNaming={branchNaming}
@@ -146,7 +157,7 @@ export function ObjectPanel() {
         <SectionDivider label="Link" />
         {linkingByUrl ? (
           <LinkForm
-            workItemId={objectId}
+            target={target}
             reachable={reachable}
             onLinked={() => {
               setLinkingByUrl(false)

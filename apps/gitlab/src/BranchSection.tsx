@@ -11,10 +11,12 @@ import { useMemo, useState } from 'react'
 
 import {
   ATTR,
-  ATTR_NAME,
   branchNameFrom,
   CODE_LINK_KEY,
   defaultProject,
+  type LinkTarget,
+  linksOf,
+  targetAttributes,
 } from './codeLink'
 import { CreateBranchModal } from './CreateBranchModal'
 import type { CodeState } from './providers'
@@ -29,6 +31,7 @@ import type { WorkItem } from './useWorkItem'
  */
 export function BranchSection({
   workItemId,
+  target,
   workItem,
   projects,
   branchNaming,
@@ -36,6 +39,8 @@ export function BranchSection({
   onChanged,
 }: {
   workItemId: string
+  /** What the new branch's link records about the work item. */
+  target: LinkTarget
   /**
    * What the panel could read of the work item.
    *
@@ -60,7 +65,7 @@ export function BranchSection({
 
   // What this work item is already using, which is the best guess at where its next branch goes.
   const existing = useObjectQuery(
-    `"${ATTR_NAME.workItem}" = objectId("${workItemId}") order by Created desc`,
+    `${linksOf(workItemId)} order by Created desc`,
     { typeKey: CODE_LINK_KEY, limit: 50 },
   )
   const usedProjects = useMemo(() => {
@@ -106,7 +111,7 @@ export function BranchSection({
 
     await objects.create(CODE_LINK_KEY, [
       ...value(ATTR.title, branch),
-      ...value(ATTR.workItem, workItemId),
+      ...targetAttributes(target, value),
       ...value(ATTR.project, project),
       ...value(ATTR.kind, 'branch'),
       ...value(ATTR.ref, branch),

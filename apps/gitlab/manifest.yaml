@@ -1,24 +1,24 @@
 # GitLab for Starhive — the merge requests and branches behind a work item.
 #
-# The app stores a `Code Link` object of its own for every connection, in its own space, holding a
-# REFERENCE out to the work item. It may read that work item back — but only because of this
-# reference: the host opens the types an app's own config-bound references point at, and nothing
-# else. That read is what the key search rests on, so the `scopes` block below declares it.
+# The app stores a `Code Link` object of its own for every connection, in its own space, holding the
+# work item's id, name and type. Not a REFERENCE: a reference points at one type, and an admin may
+# pick several. It may read those work items because the `scopes` block below declares the setting
+# that names them — that read is what the key search rests on.
 #
 # Everything shown from GitLab is fetched live, on the open. Apps have no background execution and
 # no inbound webhook, so there is nothing to keep a stored copy fresh — see README.
 app:
   key: com.starhive.apps.gitlab
-  version: 0.30.2
+  version: 0.31.0
   description: See the GitLab merge requests and branches behind a work item, and start new ones as you go.
 
 modules:
   # The product. Shows this object's links, live from GitLab, and takes new ones.
   objectPanel:
     # `showFor` keeps the tab off objects this app does not understand. Bound to the same setting the
-    # link's reference is, so the panel is offered for exactly the type the app is allowed to read —
-    # two answers to "which type" is how a tab appears on an object the app then refuses. Subtypes
-    # count, the way they do for the reference and for the read scope.
+    # read scope is, so the panel is offered for exactly the types the app is allowed to read — two
+    # answers to "which types" is how a tab appears on an object the app then refuses. Subtypes
+    # count, the way they do for the read scope.
     - { key: gitlab, title: GitLab, route: /, showFor: "${config.workItemType}" }
   # A rollup over the app's own link objects. No egress at all: it keeps working when the token is
   # unconnected or GitLab is down.
@@ -43,10 +43,13 @@ remotes:
 
 # Admin settings, stored on the install (read via starhive.config.get()).
 config:
-  # Which type a link may point at. Defaults to the app's own `workItem` type; an admin points it at
-  # the type their team actually plans in. Changing it after links exist would orphan them, so the
-  # settings page locks it once anything is linked.
-  - { key: workItemType, name: Work item type, type: typeRef, default: workItem }
+  # Which types the app works in: where the GitLab panel appears, and what a link may belong to.
+  # `multi: true` — a link stores its work item's id rather than a typed reference, so nothing here is
+  # limited to one type, and changing the list later never touches a link already made.
+  #
+  # The key is still singular from when it held one type, so an install keeps what it chose; a value
+  # saved then is a single id, which reads as a list of one.
+  - { key: workItemType, name: Work item types, type: typeRef, multi: true, default: workItem }
   # The `group/project` paths on gitlab.com this workspace works in, one per line.
   #
   # A list rather than one, because a workspace plans in one place and commits in several: a work
@@ -108,10 +111,21 @@ data:
       labelAttribute: title
       attributes:
         - { key: title,    name: Title,     type: TEXT, required: true }
-        # The link itself. Points at whatever `workItemType` resolves to — including a type in
-        # another space, which the app may reference without any claim on that space (proven by
-        # CrossSpaceReferenceTest in space-manager).
-        - { key: workItem, name: Work item, type: REFERENCE, targetType: "${config.workItemType}", cardinality: one }
+        # Retired in 0.31.0. The link used to be a REFERENCE to the work item, which can point at one
+        # type only; an admin may now pick several, so a link stores the work item's id instead
+        # (below). Deprecated rather than removed, because a published attribute cannot be: the
+        # values already written stay in the workspace, and the app no longer reads or writes them.
+        - { key: workItem, name: Work item, type: REFERENCE, targetType: "${config.workItemType}", cardinality: one, deprecated: true }
+        # The work item a link belongs to, by id — any of the configured types. Found with StarQL's
+        # strict `==`, which matches the untokenized keyword; plain `=` would split a uuid into
+        # tokens and match other ids. Written on every link, but not `required`: required would ask
+        # for consent on upgrade and mark every link made before 0.31.0 as incomplete.
+        - { key: workItemId,     name: Work item id,      type: TEXT }
+        # The work item's name when the link was made. Denormalised: with no reference, the host has
+        # no label to resolve, and a list of links must not cost one read per row to name them.
+        - { key: workItemLabel,  name: Work item name,    type: TEXT }
+        # Which type it was, so a link stays meaningful after its type is dropped from the setting.
+        - { key: workItemTypeId, name: Work item type id, type: TEXT }
         - { key: project,  name: Project,   type: TEXT, required: true }
         # merge-request | branch | commit
         - { key: kind,     name: Kind,      type: TEXT, required: true }
