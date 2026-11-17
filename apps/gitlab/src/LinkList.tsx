@@ -252,6 +252,8 @@ export function LinkList({
     if (!reachable) {
       setSearch({
         phase: 'settled',
+        failed: true,
+        blocked: true,
         message:
           `Not searching GitLab: this workspace cannot call GitLab at all. The app's "gitlab" remote ` +
           `is not available here — an admin connects it under Settings → Apps.`,
@@ -574,7 +576,9 @@ export function LinkList({
           )}
           {result && 'error' in result && (!isBranch || !notPushed) && (
             <Text size="xs" c="dimmed">
-              Showing what we last saw — {result.error}
+              {result.error === connectionProblem
+                ? 'Showing what we last saw.'
+                : `Showing what we last saw — ${result.error}`}
             </Text>
           )}
           {!reachable && (
@@ -645,6 +649,25 @@ export function LinkList({
     )
   }
 
+  /**
+   * Why GitLab cannot be trusted to answer right now, or null when it can.
+   *
+   * One answer for the whole panel, because a broken connection is not a fact about one row. An
+   * unreachable remote, a search that could not read a single project, or a live read refused for any
+   * reason but "not found" (a 401 from a rejected token, a 403, GitLab or the host failing) all mean
+   * the same thing: nothing on this panel was checked against GitLab, so an empty section is not
+   * "there is none" and must not be offered as such. A 404 is excluded — on a branch that is the
+   * ordinary "not pushed yet", and the row says so itself.
+   */
+  const liveFailure = Object.values(live).find(
+    (result): result is { error: string; status?: number } =>
+      'error' in result && result.status !== 404,
+  )
+  const connectionProblem =
+    search.phase === 'settled' && search.blocked
+      ? search.message
+      : (liveFailure?.error ?? null)
+
   const branches = links.filter((link) => link.kind === 'branch')
   const mergeRequests = links.filter((link) => link.kind === 'merge-request')
   const commits = links.filter((link) => link.kind === 'commit')
@@ -659,7 +682,7 @@ export function LinkList({
    * Neither is offered when no project could be read at all: the search learned nothing, so "No branch
    * yet" would be a guess, and creating one goes through the same token GitLab just refused.
    */
-  const blocked = search.phase === 'settled' && search.blocked === true
+  const blocked = connectionProblem !== null
   const offerReady = !blocked && (branches.length > 0 || search.phase === 'settled')
 
   const hasBranchBlock = branches.length > 0 || (Boolean(afterBranches) && offerReady)
@@ -687,8 +710,22 @@ export function LinkList({
         </Stack>
       )}
 
+      {connectionProblem && (
+        <Alert color="red" variant="light" title="GitLab connection is not working">
+          <Stack gap={4}>
+            <Text size="xs">{connectionProblem}</Text>
+            <Text size="xs">
+              {links.length > 0
+                ? 'What is shown below is what was last saved here, not checked against GitLab — there may be more.'
+                : 'So nothing could be checked — this does not mean the work item has no branches, merge requests or commits.'}
+            </Text>
+          </Stack>
+        </Alert>
+      )}
+
       {search.phase === 'settled' &&
         search.message &&
+        !search.blocked &&
         (search.failed ? (
           <Alert color="red" variant="light">
             <Text size="xs">{search.message}</Text>
