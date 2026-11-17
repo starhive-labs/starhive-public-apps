@@ -14,7 +14,9 @@ export const WORK_ITEM_KEY = 'workItem'
  */
 export const ATTR = {
   title: 'title',
-  workItem: 'workItem',
+  workItemId: 'workItemId',
+  workItemLabel: 'workItemLabel',
+  workItemTypeId: 'workItemTypeId',
   project: 'project',
   kind: 'kind',
   ref: 'ref',
@@ -31,7 +33,9 @@ export const ATTR = {
  */
 export const ATTR_NAME = {
   title: 'Title',
-  workItem: 'Work item',
+  workItemId: 'Work item id',
+  workItemLabel: 'Work item name',
+  workItemTypeId: 'Work item type id',
   project: 'Project',
   kind: 'Kind',
   ref: 'Ref',
@@ -40,9 +44,45 @@ export const ATTR_NAME = {
   author: 'Author',
 } as const
 
+/**
+ * The work item a link belongs to.
+ *
+ * Stored on the link as its id, label and type rather than as a REFERENCE, because a reference can
+ * point at one type and an admin may pick several. The Time Tracking app stores its entries the same
+ * way for the same reason. The label and type are denormalised on purpose: there is no reference for
+ * the host to resolve a name from, and a list of links must not cost one read per row to say what
+ * each is attached to.
+ */
+export type LinkTarget = { id: string; label: string; typeId: string }
+
+/** The attribute values that tie a new link to [target], by key. */
+export function targetValues(target: LinkTarget): [string, string][] {
+  return [
+    [ATTR.workItemId, target.id],
+    [ATTR.workItemLabel, target.label || target.id],
+    [ATTR.workItemTypeId, target.typeId],
+  ]
+}
+
+/**
+ * StarQL for the links of one work item.
+ *
+ * Strict equality (`==`): for a TEXT attribute that matches the untokenized keyword, where plain `=`
+ * goes through the analyser — and a hyphenated uuid is several tokens there, so one work item's id
+ * could match another's.
+ */
+export function linksOf(workItemId: string): string {
+  return `"${ATTR_NAME.workItemId}" == "${workItemId}"`
+}
+
 export type CodeConfig = {
-  /** The Starhive typeId a link's `workItem` reference targets. */
-  workItemType: string | null
+  /**
+   * The types a Code panel is offered on and may link from — any number of them.
+   *
+   * The setting is still called `workItemType`, from when it was one type, so an install keeps what
+   * it chose. A value saved then is a single id rather than a list, and reads as a list of one.
+   */
+  workItemTypes: string[]
   /**
    * How a branch name is built — a template like `{initials}/{key}-{label}`.
    *
@@ -55,7 +95,7 @@ export type CodeConfig = {
   projects: string[]
 }
 
-export const DEFAULT_CONFIG: CodeConfig = { workItemType: null, projects: [], branchNaming: '' }
+export const DEFAULT_CONFIG: CodeConfig = { workItemTypes: [], projects: [], branchNaming: '' }
 
 /**
  * Read the install's settings.
@@ -98,7 +138,9 @@ export function readConfig(raw: Record<string, unknown> | undefined): CodeConfig
         : []
 
   return {
-    workItemType: typeof raw?.workItemType === 'string' ? raw.workItemType : null,
+    workItemTypes: (Array.isArray(raw?.workItemType) ? raw.workItemType : [raw?.workItemType]).filter(
+      (id): id is string => typeof id === 'string' && id.length > 0,
+    ),
     branchNaming: readNaming(raw),
     projects: [
       ...new Set(

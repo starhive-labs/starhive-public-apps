@@ -1,4 +1,4 @@
-import { Alert, Group, ScrollArea, Stack, Text } from '@mantine/core'
+import { Group, ScrollArea, Stack, Text } from '@mantine/core'
 import {
   displayOf,
   useAttributes,
@@ -6,16 +6,23 @@ import {
   useObjectQuery,
   useObjects,
   useStarhiveContext,
-  useTypeById,
 } from '@starhive/bridge'
 import { Button, Card } from '@starhive/ui'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { slugify } from './branchName'
-import { ATTR, CODE_LINK_KEY, readLink, WORK_ITEM_KEY } from './codeLink'
+import {
+  ATTR,
+  CODE_LINK_KEY,
+  type LinkTarget,
+  readLink,
+  targetValues,
+  WORK_ITEM_KEY,
+} from './codeLink'
 import { gitlab } from './providers'
 import { SectionDivider } from './SectionDivider'
 import { type Candidate, type Plan, planSync, type WorkItemIndex } from './sync'
+import { Notice, NoticeText } from './Notice'
 
 /**
  * Catching up with a workspace that already has history.
@@ -41,15 +48,13 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
   //
   // The first of them: catching up walks one type, and a workspace that nominates several is a case
   // this section has not been taught yet — better one honest pass than a silent half of the work.
-  const ownTypeId = typeKeyToId[WORK_ITEM_KEY]
-  const workItemTypeId = readTypeIds?.[0] ?? ownTypeId
-  const ownType = useTypeById(workItemTypeId)
-  const workItems = useObjectQuery('order by Created desc', {
-    // By id, because the configured type may be one an admin chose and this app never declared, so
-    // it has no manifest key to name it by.
-    typeId: workItemTypeId,
-    limit: 500,
-  })
+  // Every type an admin chose, or the app's own `workItem` when none has been. The host lets the
+  // app read the chosen ones because the manifest declares the setting as a read scope.
+  const typeIds = useMemo(() => {
+    const chosen = (readTypeIds ?? []).filter(Boolean)
+    return chosen.length > 0 ? chosen : [typeKeyToId[WORK_ITEM_KEY]].filter(Boolean)
+  }, [readTypeIds, typeKeyToId])
+  const workItems = useWorkItemIndex(typeIds)
   const existingLinks = useObjectQuery('order by Created desc', {
     typeKey: CODE_LINK_KEY,
     limit: 500,
@@ -60,29 +65,7 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
   const [busy, setBusy] = useState<'preview' | 'apply' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
-  /** Work items, indexed by whatever a branch name might call them. */
-  const index = useMemo<WorkItemIndex>(() => {
-    const byKey: Record<string, string> = {}
-    const byLabel: Record<string, string> = {}
-    const type = ownType.data
-    if (!type) return { byKey, byLabel }
-
-    const labelAttribute = type.attributes.find((attribute) => attribute.isLabel)
-    // The key is whatever the type uses as one: a SEQUENCE if it has one — that is what a sequence
-    // is for — and otherwise nothing, since guessing which TEXT attribute holds a key is how you
-    // link a branch to the wrong work item.
-    const keyAttribute = type.attributes.find(
-      (attribute) => attribute.attributeTypeCode === 'SEQUENCE',
-    )
-
-    for (const object of workItems.data?.result ?? []) {
-      const key = keyAttribute ? displayOf(object, keyAttribute.id) : undefined
-      if (key) byKey[slugify(key)] = object.id
-      const label = labelAttribute ? displayOf(object, labelAttribute.id) : undefined
-      if (label) byLabel[slugify(label)] = object.id
-    }
-    return { byKey, byLabel }
-  }, [ownType.data, workItems.data])
+  const index = workItems.index
 
   const alreadyLinked = useMemo(() => {
     const byKey = new Map(columns.data.map((column) => [column.key ?? column.name, column.id]))
@@ -140,9 +123,14 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
           const id = attributeIdOf(key)
           return id && text ? [{ attributeId: id, values: [text] }] : []
         }
+        const target = workItems.targets.get(item.workItemId) ?? {
+          id: item.workItemId,
+          label: '',
+          typeId: '',
+        }
         await objects.create(CODE_LINK_KEY, [
           ...value(ATTR.title, item.title),
-          ...value(ATTR.workItem, item.workItemId),
+          ...targetValues(target).flatMap(([key, text]) => value(key, text)),
           ...value(ATTR.project, item.project),
           ...value(ATTR.kind, item.kind),
           ...value(ATTR.ref, item.ref),
@@ -166,18 +154,21 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
 
   if (projects.length === 0) return null
 
-  const readable = Boolean(ownType.data) && !ownType.error
+  const readable = workItems.loaded && workItems.unreadable < typeIds.length
   const hasKeys = Object.keys(index.byKey).length > 0
 
   return (
     <Stack gap="xs">
       <SectionDivider label="Catch up with GitLab" />
 
-      {!readable ? (
+      {!workItems.loaded ? (
         <Text size="xs" c="dimmed">
-          The work item type cannot be read, so there is no way to tell which work item a branch
-          belongs to. That is normally a host too old to let an app read the type its own references
-          point at.
+          Reading the work item types…
+        </Text>
+      ) : !readable ? (
+        <Text size="xs" c="dimmed">
+          None of the work item types set on the settings page can be read, so there is no way to
+          tell which work item a branch belongs to.
         </Text>
       ) : (
         <>
@@ -185,8 +176,10 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
             Reads every branch and open merge request in {projects.length === 1 ? 'the project' : 'the projects'} above and links the ones whose
             name identifies a work item — a key like <code>ABC-123</code> at the front of the branch
             name
-            {hasKeys ? '' : ', which needs a sequence attribute on the work item type'}. Nothing is
+            {hasKeys ? '' : ', which needs a sequence attribute on the work item types'}. Nothing is
             written until you say so.
+            {workItems.unreadable > 0 &&
+              ` ${workItems.unreadable} of the ${typeIds.length} types could not be read and are left out.`}
           </Text>
 
           <Group gap="xs">
@@ -207,10 +200,12 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
           )}
 
           {truncated && (
-            <Alert color="yellow" variant="light">
-              One of these projects has more branches than a single run reads. Link what was found,
-              then run it again.
-            </Alert>
+            <Notice tone="warning">
+              <NoticeText>
+                One of these projects has more branches than a single run reads. Link what was
+                found, then run it again.
+              </NoticeText>
+            </Notice>
           )}
 
           {plan && (
@@ -257,4 +252,67 @@ export function SyncSection({ projects, onChanged }: { projects: string[]; onCha
       )}
     </Stack>
   )
+}
+
+/**
+ * Every work item of [typeIds], indexed by whatever a branch name might call it, plus what a link to
+ * each records about it.
+ *
+ * Read with the bridge rather than with one hook per type, because the number of types is the
+ * admin's to choose and hooks cannot be called a variable number of times. A type that cannot be read
+ * is counted and left out rather than failing the rest — one unreadable type should not stop the
+ * others from catching up.
+ */
+function useWorkItemIndex(typeIds: string[]): {
+  index: WorkItemIndex
+  targets: Map<string, LinkTarget>
+  unreadable: number
+  loaded: boolean
+} {
+  const bridge = useBridge()
+  const [state, setState] = useState<{
+    index: WorkItemIndex
+    targets: Map<string, LinkTarget>
+    unreadable: number
+    loaded: boolean
+  }>({ index: { byKey: {}, byLabel: {} }, targets: new Map(), unreadable: 0, loaded: false })
+  const fingerprint = typeIds.join('|')
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      const byKey: Record<string, string> = {}
+      const byLabel: Record<string, string> = {}
+      const targets = new Map<string, LinkTarget>()
+      let unreadable = 0
+
+      for (const typeId of fingerprint.split('|').filter(Boolean)) {
+        try {
+          const [type, page] = await Promise.all([
+            bridge.invoke('types.get', { typeId }),
+            bridge.objects.query('order by Created desc', { typeId, limit: 500 }),
+          ])
+          const labelAttribute = type.attributes.find((attribute) => attribute.isLabel)
+          const keyAttribute = type.attributes.find(
+            (attribute) => attribute.attributeTypeCode === 'SEQUENCE',
+          )
+          for (const object of page.result) {
+            const key = keyAttribute ? displayOf(object, keyAttribute.id) : undefined
+            if (key) byKey[slugify(key)] = object.id
+            const label = labelAttribute ? displayOf(object, labelAttribute.id) : undefined
+            if (label) byLabel[slugify(label)] = object.id
+            targets.set(object.id, { id: object.id, label: label ?? '', typeId: object.typeId })
+          }
+        } catch {
+          unreadable += 1
+        }
+      }
+      if (active) setState({ index: { byKey, byLabel }, targets, unreadable, loaded: true })
+    })()
+    return () => {
+      active = false
+    }
+  }, [bridge, fingerprint])
+
+  return state
 }

@@ -1,12 +1,22 @@
-import { Alert, Anchor, Group, Progress, Stack, Text } from '@mantine/core'
+import { Anchor, Group, Progress, Stack, Text } from '@mantine/core'
 import { useAttributes, useBridge, useObjectQuery, useObjects } from '@starhive/bridge'
 import { Badge, Button, Card } from '@starhive/ui'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { ATTR, ATTR_NAME, CODE_LINK_KEY, readLink, stateVariant, type StoredLink } from './codeLink'
+import {
+  ATTR,
+  CODE_LINK_KEY,
+  type LinkTarget,
+  linksOf,
+  readLink,
+  stateVariant,
+  type StoredLink,
+  targetValues,
+} from './codeLink'
 import { carriesKey } from './discover'
 import { forgetLinked, linkedThisSession, linkIdentity, rememberLinked } from './linked'
 import { type CodeLocator, type CodeState, gitlab, ProviderError } from './providers'
+import { Notice, NoticeText } from './Notice'
 import { SectionDivider } from './SectionDivider'
 
 /**
@@ -45,6 +55,7 @@ const KIND_LABEL: Record<string, string> = {
  */
 export function LinkList({
   workItemId,
+  target,
   reachable,
   projects,
   searchKey,
@@ -53,8 +64,10 @@ export function LinkList({
   onLoaded,
   afterBranches,
 }: {
-  /** The object the panel is mounted on, and what a link's reference points at. */
+  /** The object the panel is mounted on, whose links these are. */
   workItemId?: string
+  /** What a link this list creates records about that object. */
+  target?: LinkTarget
   /** Whether GitLab can be called at all. False means show stored state and say so. */
   reachable: boolean
   /** The configured `group/project` paths — where a search for this work item's key looks. */
@@ -99,7 +112,7 @@ export function LinkList({
   const objects = useObjects()
   const columns = useAttributes(CODE_LINK_KEY, Object.values(ATTR))
 
-  const where = workItemId ? `"${ATTR_NAME.workItem}" = objectId("${workItemId}")` : ''
+  const where = workItemId ? linksOf(workItemId) : ''
   const starql = where ? `${where} order by Created desc` : 'order by Created desc'
   const { data, isLoading, error } = useObjectQuery(starql, {
     typeKey: CODE_LINK_KEY,
@@ -162,6 +175,10 @@ export function LinkList({
   >({ phase: 'unknown' })
   const report = useRef(onLoaded)
   report.current = onLoaded
+  // Read when a link is written rather than a dependency of the discovery pass: the label arrives a
+  // moment after the panel opens, and re-running the whole GitLab search for it would cost a search.
+  const targetRef = useRef(target)
+  targetRef.current = target
   /**
    * What GitLab has from each branch, as of the last discovery pass.
    *
@@ -294,7 +311,9 @@ export function LinkList({
       rememberLinked(workItemId, linkIdentity(item))
       await objects.create(CODE_LINK_KEY, [
         ...value(ATTR.title, item.title),
-        ...value(ATTR.workItem, workItemId),
+        ...targetValues(targetRef.current ?? { id: workItemId, label: '', typeId: '' }).flatMap(
+          ([key, text]) => value(key, text),
+        ),
         ...value(ATTR.project, item.project),
         ...value(ATTR.kind, item.kind),
         ...value(ATTR.ref, item.ref),
@@ -711,25 +730,23 @@ export function LinkList({
       )}
 
       {connectionProblem && (
-        <Alert color="red" variant="light" title="GitLab connection is not working">
-          <Stack gap={4}>
-            <Text size="xs">{connectionProblem}</Text>
-            <Text size="xs">
-              {links.length > 0
-                ? 'What is shown below is what was last saved here, not checked against GitLab — there may be more.'
-                : 'So nothing could be checked — this does not mean the work item has no branches, merge requests or commits.'}
-            </Text>
-          </Stack>
-        </Alert>
+        <Notice title="GitLab connection is not working">
+          <NoticeText>{connectionProblem}</NoticeText>
+          <NoticeText>
+            {links.length > 0
+              ? 'What is shown below is what was last saved here, not checked against GitLab — there may be more.'
+              : 'So nothing could be checked — this does not mean the work item has no branches, merge requests or commits.'}
+          </NoticeText>
+        </Notice>
       )}
 
       {search.phase === 'settled' &&
         search.message &&
         !search.blocked &&
         (search.failed ? (
-          <Alert color="red" variant="light">
-            <Text size="xs">{search.message}</Text>
-          </Alert>
+          <Notice>
+            <NoticeText>{search.message}</NoticeText>
+          </Notice>
         ) : (
           <Text size="xs" c="dimmed">
             {search.message}

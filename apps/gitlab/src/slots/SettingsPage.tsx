@@ -1,20 +1,17 @@
-import { Alert, Stack, Text, Textarea, Title } from '@mantine/core'
+import { MultiSelect, Stack, Text, Textarea, Title } from '@mantine/core'
 import {
+  type BridgeType,
   useBridge,
   useConfig,
-  useAttribute,
-  useObjectQuery,
   useStarhiveContext,
   useToast,
-  useTypeById,
   useTypes,
 } from '@starhive/bridge'
-import { Badge, Button, Card, Select, TextInput } from '@starhive/ui'
+import { Badge, Button, Card, TextInput } from '@starhive/ui'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   branchNameFrom,
-  CODE_LINK_KEY,
   DEFAULT_BRANCH_TEMPLATE,
   readConfig,
   unknownTokens,
@@ -23,7 +20,7 @@ import {
 import { gitlab } from '../providers'
 import { useRemoteStatus } from '../useRemoteStatus'
 
-/** Admin settings: which type a link may point at, and which GitLab project to search. */
+/** Admin settings: which types the app works in, and which GitLab projects to search. */
 export function SettingsPage() {
   const { typeKeyToId, user } = useStarhiveContext()
   const { config, isLoading, setConfig } = useConfig()
@@ -31,34 +28,30 @@ export function SettingsPage() {
   const reachable = useRemoteStatus('gitlab')
   const toast = useToast()
 
-  // One existing link locks the work item type: changing it would orphan every reference already
-  // written, and those references are the only thing tying code to a work item.
-  const { data: links, isLoading: linksLoading } = useObjectQuery('order by Created desc', {
-    typeKey: CODE_LINK_KEY,
-    limit: 1,
-  })
-
   const defaultWorkItemTypeId = typeKeyToId[WORK_ITEM_KEY] ?? ''
-  const [workItemType, setWorkItemType] = useState('')
+  const [workItemTypes, setWorkItemTypes] = useState<string[]>([])
   const [projects, setProjects] = useState('')
   const [branchNaming, setBranchNaming] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const bridge = useBridge()
+
   /*
-   * The chosen type's own attributes, which are what a naming template may name.
+   * The chosen types' own attributes, which are what a naming template may name.
    *
-   * Read here rather than described in help text: the tokens available depend on a type this app
-   * does not own and an admin picked a moment ago, so the only honest list is the one fetched.
+   * Read here rather than described in help text: the tokens available depend on types this app
+   * does not own and an admin picked a moment ago, so the only honest list is the one fetched. Every
+   * type's attributes count — a token resolves by name on whichever work item a branch is made for,
+   * so a token one of the types has is a real token.
    */
-  const target = useTypeById(workItemType || undefined)
+  const chosenTypes = useChosenTypes(workItemTypes)
   const attributeNames = useMemo(
-    () => (target.data?.attributes ?? []).map((attribute) => attribute.name),
-    [target.data],
+    () => [...new Set(chosenTypes.flatMap((type) => type.attributes.map((attribute) => attribute.name)))],
+    [chosenTypes],
   )
   const unknown = unknownTokens(branchNaming, attributeNames)
 
-  const bridge = useBridge()
   const [checking, setChecking] = useState(false)
   const [check, setCheck] = useState<{ identity: string; projects: string[] } | null>(null)
 
@@ -100,30 +93,15 @@ export function SettingsPage() {
   useEffect(() => {
     if (isLoading) return
     const parsed = readConfig(config)
-    setWorkItemType(parsed.workItemType ?? defaultWorkItemTypeId)
+    setWorkItemTypes(
+      parsed.workItemTypes.length > 0
+        ? parsed.workItemTypes
+        : [defaultWorkItemTypeId].filter(Boolean),
+    )
     setProjects(parsed.projects.join('\n'))
     setBranchNaming(parsed.branchNaming)
   }, [config, isLoading, defaultWorkItemTypeId])
 
-  const locked = (links?.result.length ?? 0) > 0
-
-  /*
-   * What a link's reference actually points at, against what this page says it should.
-   *
-   * A config-bound reference target is re-pointed by the platform when the setting changes, and if
-   * that does not happen the app looks fine and every write fails with a bare INVALID_VALUE - the
-   * reference still demands the old type while the setting advertises the new one. The app can see
-   * both, so it can say so instead of leaving someone to discover it one failed link at a time.
-   */
-  const linkReference = useAttribute(CODE_LINK_KEY, 'workItem')
-  const boundTypeId = linkReference.data?.configuration?.targetTypeId
-  const savedWorkItemType =
-    typeof config?.workItemType === 'string' ? config.workItemType : undefined
-  const mismatched = Boolean(
-    boundTypeId && savedWorkItemType && boundTypeId !== savedWorkItemType,
-  )
-  const nameOfType = (id: string | undefined) =>
-    (types ?? []).find((type) => type.id === id)?.name ?? id?.slice(0, 8) ?? 'unknown'
   /*
    * An attribute standing in for its own value, so a template naming one previews as something.
    *
@@ -144,12 +122,14 @@ export function SettingsPage() {
       value: type.id,
       label: `${type.name}${type.id === defaultWorkItemTypeId ? ' (default)' : ''}`,
     }))
-    // Keep the current selection visible even if it isn't in the fetched list (e.g. another space).
-    if (workItemType && !list.some((type) => type.value === workItemType)) {
-      list.unshift({ value: workItemType, label: `Selected type (${workItemType.slice(0, 8)}…)` })
+    // Keep every current selection visible even if it isn't in the fetched list (e.g. another space).
+    for (const id of workItemTypes) {
+      if (!list.some((type) => type.value === id)) {
+        list.unshift({ value: id, label: `Selected type (${id.slice(0, 8)}…)` })
+      }
     }
     return list
-  }, [types, workItemType, defaultWorkItemTypeId])
+  }, [types, workItemTypes, defaultWorkItemTypeId])
 
   async function save() {
     setSaving(true)
@@ -158,7 +138,8 @@ export function SettingsPage() {
       // Stored as a list; the old singular `project` is dropped on the first save, and readConfig
       // still understands it for an install that has not saved since.
       await setConfig({
-        workItemType,
+        // Still saved under the setting's original key, now as a list.
+        workItemType: workItemTypes,
         projects: listedProjects,
         branchNaming: branchNaming.trim(),
         // Blanked, not left: `readConfig` upgrades an old prefix into a template only while there is
@@ -173,7 +154,7 @@ export function SettingsPage() {
     }
   }
 
-  if (isLoading || linksLoading) {
+  if (isLoading) {
     return (
       <Stack gap="md" p="lg">
         <Title order={3}>GitLab</Title>
@@ -223,29 +204,15 @@ export function SettingsPage() {
         </Stack>
       </Card>
 
-      {mismatched && (
-        <Alert color="red" variant="light" title="Links still point at the old type">
-          A link’s reference targets <b>{nameOfType(boundTypeId)}</b>, but this page is set to{' '}
-          <b>{nameOfType(savedWorkItemType)}</b>. Until those agree, linking anything fails with
-          INVALID_VALUE — the reference refuses an object of any other type. Saving this page again
-          asks the platform to re-point it; if it stays out of step, the re-point is failing rather
-          than not being asked for.
-        </Alert>
-      )}
-
       <Card>
         <Stack gap="sm">
-          <Select
-            label="Work item type"
-            description={
-              locked
-                ? 'Locked: links already point at this type, and changing it would orphan them.'
-                : 'The type a Code panel may link from. Point it at the type your team plans in.'
-            }
+          <MultiSelect
+            label="Work item types"
+            description="The types that get a GitLab panel and can have code linked to them. Pick every type your team plans in; types that extend these count too. Changing the list later is safe — links already made keep their work item."
             data={typeOptions}
-            value={workItemType || null}
-            onChange={(value) => setWorkItemType(value ?? '')}
-            disabled={locked || typesLoading}
+            value={workItemTypes}
+            onChange={setWorkItemTypes}
+            disabled={typesLoading}
             searchable
           />
           <Textarea
@@ -288,7 +255,7 @@ export function SettingsPage() {
           </Text>
           {attributeNames.length > 0 && (
             <Text size="xs" c="dimmed">
-              Attributes of {target.data?.name}, usable by name:{' '}
+              Attributes of {chosenTypes.map((type) => type.name).join(', ')}, usable by name:{' '}
               {attributeNames.map((name) => `{${name}}`).join(' ')}
             </Text>
           )}
@@ -300,8 +267,8 @@ export function SettingsPage() {
             <Text size="xs" c="red">
               {unknown.map((name) => `{${name}}`).join(', ')}{' '}
               {unknown.length > 1 ? 'resolve' : 'resolves'} to nothing —{' '}
-              {target.data
-                ? `neither a role nor an attribute of ${target.data.name}.`
+              {chosenTypes.length > 0
+                ? `neither a role nor an attribute of ${chosenTypes.map((type) => type.name).join(' or ')}.`
                 : 'no work item type is chosen yet, so only {initials}, {key} and {label} can be checked.'}
             </Text>
           )}
@@ -318,4 +285,31 @@ export function SettingsPage() {
       </Card>
     </Stack>
   )
+}
+
+/**
+ * The schemas of the types an admin has chosen, as they are chosen.
+ *
+ * A type that cannot be read is left out rather than failing the page: it only costs the token list
+ * that type's attributes, and the setting itself still saves.
+ */
+function useChosenTypes(typeIds: string[]): BridgeType[] {
+  const bridge = useBridge()
+  const [types, setTypes] = useState<BridgeType[]>([])
+  const fingerprint = typeIds.join('|')
+
+  useEffect(() => {
+    let active = true
+    const ids = fingerprint.split('|').filter(Boolean)
+    void Promise.all(
+      ids.map((typeId) => bridge.invoke('types.get', { typeId }).catch(() => null)),
+    ).then((read) => {
+      if (active) setTypes(read.filter((type): type is BridgeType => type !== null))
+    })
+    return () => {
+      active = false
+    }
+  }, [bridge, fingerprint])
+
+  return types
 }

@@ -1,4 +1,4 @@
-import { Alert, Box, Group, Modal, Stack, Text } from '@mantine/core'
+import { Box, Group, Modal, Stack, Text } from '@mantine/core'
 import { useBridge, useTheme } from '@starhive/bridge'
 import { Button, Select, TextInput } from '@starhive/ui'
 import { useEffect, useState } from 'react'
@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { branchNameProblem, MAX_BRANCH_NAME } from './codeLink'
 import { CopyField } from './CopyField'
 import { type CodeState, gitlab } from './providers'
+import { Notice, NoticeText } from './Notice'
 
 /**
  * Name a branch, then either let GitLab create it or take the name away and create it yourself.
@@ -154,9 +155,9 @@ export function CreateBranchModal({
         </div>
 
         {error && (
-          <Alert color="red" variant="light">
-            {error}
-          </Alert>
+          <Notice>
+            <NoticeText>{error}</NoticeText>
+          </Notice>
         )}
 
         {/* No Cancel: the dialog's own close is the way out, and two of them is one too many. */}

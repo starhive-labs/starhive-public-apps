@@ -34,21 +34,23 @@ Worth reading before changing anything, because each one looks like a bug otherw
 
 **It reads the object it is mounted on through a keyhole.** An `objectPanel` is handed
 `context.objectId` and nothing else — no type, no label — and for a long time `objects.get` on that id
-was refused outright. It is allowed now, but only because the app's own `codeLink` type holds a
-`REFERENCE` to whatever `workItemType` names: the host lets an app read the types its own
-config-bound references point at, and nothing else. So the panel reads that object once, in
+was refused outright. It is allowed now, because the manifest declares the `workItemType` setting
+as a read scope: the host lets an app read the types an admin nominated there, and nothing else. So
+the panel reads that object once, in
 `useWorkItem`, and everything downstream works from what came back — the branch name, and the key
 GitLab is searched for. Point the setting somewhere else and the read closes again, which is why
 `useWorkItem` reports *why* it got nothing rather than just getting nothing: a refused read, a type
 with no SEQUENCE and a work item created a second ago all produce the same empty panel and want
 completely different things done about them.
 
-**Writing a reference is gated on the type being created, not on its target.** A link object lives in the app's space
-and points *out* at a work item through a `REFERENCE`. `objects.create` gates only the type being
-created, and space-manager validates a reference against the attribute's target type without caring
-which space the target sits in. That asymmetry is what the whole data model rests on, so it is held by
-tests rather than assumed — `CrossSpaceReferenceTest` in space-manager, and a case in the bridge
-dispatcher's own suite.
+**A link stores its work item's id, not a reference.** An admin may pick several work item types,
+and a `REFERENCE` points at exactly one, so since 0.31.0 a `codeLink` records the work item's id,
+name and type as text — the same model the Time Tracking app uses. Links are found with StarQL's
+strict `==` on the id, which matches the untokenized value; plain `=` would split a uuid into tokens
+and match other ids. The old `workItem` reference is `deprecated: true`: links made before 0.31.0
+keep their values in the workspace but are no longer read, and the key search links that work again
+on the next open. The cost is that a link no longer shows up as a native relation on the work item
+in Starhive itself; the GitLab panel is where it is seen.
 
 **Nothing refreshes on its own.** Apps have no background execution and no inbound webhook, so there
 is no "PR merged → move to Done" and no copy that stays true by itself. Everything is fetched when a
@@ -199,9 +201,8 @@ vendor noise in someone else's workspace. It previews before it writes, skips wh
 and lists what it could not identify rather than guessing. `src/sync.ts` imports nothing so the
 matcher can be run: `npm test`.
 
-It only works while `workItemType` is the type this app provisions — matching means enumerating work
-items, and the bridge refuses objects outside the app's own types. Pointed at a customer's own type,
-the section says so instead of returning nothing.
+It enumerates the work items of every type in the `workItemType` setting — readable because the
+setting is a declared read scope — and leaves out, and counts, any type it cannot read.
 
 **Self-managed GitLab does not work yet.** A remote whose address the customer supplies needs a
 `configurable.patterns` block bounding the hosts they may enter, and a bare `*` is refused — but a
