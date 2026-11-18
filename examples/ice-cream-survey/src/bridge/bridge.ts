@@ -407,14 +407,20 @@ export function createBridge(options: CreateBridgeOptions = {}): StarhiveBridge 
    * otherwise quietly lose half of itself — a `groupBy` key beside a `typeId` is a breakdown that
    * comes back as one total.
    */
-  function aggregateTarget(request: BridgeAggregateRequest): {
-    typeId: string
-    attributeId?: string
-    groupByAttributeId?: string
-  } {
-    const byKey = request.typeKey != null || request.attribute != null || request.groupBy != null
-    const byId =
-      request.typeId != null || request.attributeId != null || request.groupByAttributeId != null
+  function aggregateTarget(
+    request: BridgeAggregateRequest,
+  ): Pick<AggregateWireArgs, 'typeId' | 'attributeId' | 'groupByAttributeId'> {
+    // An empty string is as good as absent: it is what an unset setting or a blank picker gives,
+    // and treating it as "given" would either send it to the host or call a request mixed.
+    const typeKey = given(request.typeKey)
+    const attribute = given(request.attribute)
+    const groupBy = given(request.groupBy)
+    const typeId = given(request.typeId)
+    const attributeId = given(request.attributeId)
+    const groupByAttributeId = given(request.groupByAttributeId)
+
+    const byKey = typeKey != null || attribute != null || groupBy != null
+    const byId = typeId != null || attributeId != null || groupByAttributeId != null
     if (byKey && byId) {
       raise(
         'An aggregate names its type either by key (typeKey, attribute, groupBy) or by id ' +
@@ -423,31 +429,26 @@ export function createBridge(options: CreateBridgeOptions = {}): StarhiveBridge 
     }
     const needsAttribute = request.operation !== 'count'
 
-    if (request.typeId != null) {
-      const { typeId } = request
+    if (typeId != null) {
       return {
         typeId,
         attributeId: needsAttribute
-          ? (request.attributeId ??
+          ? (attributeId ??
             raise(`"${request.operation}" needs an attributeId of type "${typeId}"`))
           : undefined,
-        groupByAttributeId: request.groupByAttributeId,
+        groupByAttributeId,
       }
     }
-    if (request.typeKey != null) {
-      const { typeKey } = request
+    if (typeKey != null) {
       return {
         typeId: resolveTypeKey(typeKey),
         attributeId: needsAttribute
           ? resolveAttributeKey(
-              request.attribute ??
-                raise(`"${request.operation}" needs an attribute of "${typeKey}"`),
+              attribute ?? raise(`"${request.operation}" needs an attribute of "${typeKey}"`),
               typeKey,
             )
           : undefined,
-        groupByAttributeId: request.groupBy
-          ? resolveAttributeKey(request.groupBy, typeKey)
-          : undefined,
+        groupByAttributeId: groupBy != null ? resolveAttributeKey(groupBy, typeKey) : undefined,
       }
     }
     return raise(
@@ -616,4 +617,12 @@ export function createBridge(options: CreateBridgeOptions = {}): StarhiveBridge 
   ready.catch(() => undefined)
 
   return bridge
+}
+
+/** What the host receives for an aggregate, whichever form the app's request took. */
+type AggregateWireArgs = BridgeArgs<'objects.aggregate'>[0]
+
+/** A string field of a request, or undefined when it is missing or empty. */
+function given(value: string | undefined | null): string | undefined {
+  return value == null || value === '' ? undefined : value
 }

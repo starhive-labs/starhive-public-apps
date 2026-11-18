@@ -2,7 +2,7 @@ app:
   # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
   # via "Publish a new app" in the Starhive UI.
   key: com.starhive.apps.demo.onboarding
-  version: 1.4.0
+  version: 1.4.1
   description: Run structured employee onboarding in Starhive. Each task is a native object, so checklists, progress and reporting are just Starhive.
 
 # Where the single bundle mounts. Every module loads the same entry (`/`); the

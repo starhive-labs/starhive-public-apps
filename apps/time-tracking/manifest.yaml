@@ -12,7 +12,7 @@
 # what that costs.
 app:
   key: com.starhive.apps.timetracking
-  version: 0.3.0
+  version: 0.3.1
   description: Log time on any object. See who logged what, the total, and how it splits per person and per month.
   icon: extension
 

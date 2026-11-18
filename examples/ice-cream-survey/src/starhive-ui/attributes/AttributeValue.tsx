@@ -135,9 +135,23 @@ function renderOne(args: RenderArgs): ReactNode {
         />
       )
 
+    case 'ROLLUP': {
+      // A rollup totals another type's attribute and carries no type of its own for the result, so
+      // a sum of whole numbers (hours, counts) would otherwise read as "12.0". A whole total is
+      // shown as one; anything else keeps its decimals.
+      const whole = value.value.trim() !== '' && Number.isInteger(Number(value.value))
+      return (
+        <p.Number
+          value={value.value}
+          formatted={formatNumberFor(value.value, whole, configuration)}
+          isInteger={whole}
+          density={density}
+        />
+      )
+    }
+
     case 'DECIMAL':
     case 'CALCULATED':
-    case 'ROLLUP':
       return (
         <p.Number
           value={value.value}
