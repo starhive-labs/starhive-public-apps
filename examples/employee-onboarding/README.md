@@ -60,6 +60,30 @@ Three things the component is shaped by:
 - **Moves that require a screen are skipped** — Starhive expects that screen's attributes in the same
   update, which the app can't collect. A workflow provisioned from a manifest never has one.
 
+### Automations: what the app does on its own
+
+The manifest's `automations:` block declares rules that Starhive's automation engine runs for the
+app, with nobody having it open. The app ships no code for them. Before installing, the admin sees
+each one by name with its reason. Once installed, each has its own on/off switch on the app's
+settings page, and they appear read-only under **Settings → Automations → Managed by apps**.
+
+| Automation | When | What it does |
+| --- | --- | --- |
+| Mark new tasks | a task is created | sets its Notes to "Waiting to be started" |
+| Tell the owner when a task is done | a task's Status changes to Done | emails the task's Owner, linking to the task |
+| Start overdue tasks | every five minutes | moves a task still in To do past its Due date to In progress |
+
+To try them after installing:
+
+1. **Create a task.** Its Notes read "Waiting to be started".
+2. **Give a task an Owner and move it to Done.** The owner gets an email.
+3. **Give a To do task a Due date in the past.** Within five minutes it moves to In progress. A real
+   app would check hourly. The five minutes is only here so the demo is quick.
+
+A rule names everything by key (`{dueDate}`, `{state:taskStatus.todo}`, `{title}`), so renaming an
+attribute or a state in the workspace doesn't break it. The rules act on this app's own types only,
+and a rule's run counts toward the workspace's automation usage like any other.
+
 ## How it's wired
 
 | File | Role |
