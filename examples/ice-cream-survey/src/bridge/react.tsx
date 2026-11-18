@@ -147,23 +147,42 @@ export type UseAggregateResult = {
  * // data?.groups → { opened: 4, merged: 11 }
  * ```
  *
+ * For a type an admin nominated through `scopes.read`, name it and its attributes by id instead, and
+ * hold it back until there is one:
+ * `useObjectAggregate({ typeId, operation: 'count', groupByAttributeId }, { enabled: !!typeId })`.
+ *
  * Prefer this over counting a query's rows: a query answers "how many" with `total`, but a breakdown
  * meant fetching every row and tallying it in the browser — bounded by the page size, and quietly
  * wrong past it.
  */
-export function useObjectAggregate(request: BridgeAggregateRequest): UseAggregateResult {
+export function useObjectAggregate(
+  request: BridgeAggregateRequest,
+  options?: {
+    /**
+     * False holds the aggregate back: no request, no error, `isLoading` false. For a request that
+     * cannot be made yet — above all a `typeId` from `readTypeIds` before an admin has nominated a
+     * type, which would otherwise sit in the error state until they do.
+     */
+    enabled?: boolean
+  },
+): UseAggregateResult {
   const bridge = useBridge()
+  const enabled = options?.enabled ?? true
   const [state, setState] = useState<{
     data: BridgeAggregateResult | undefined
     isLoading: boolean
     error: Error | null
-  }>({ data: undefined, isLoading: true, error: null })
+  }>({ data: undefined, isLoading: enabled, error: null })
   const [reloadToken, setReloadToken] = useState(0)
 
   // Callers pass an inline object, so depend on what it says rather than on its identity.
   const fingerprint = JSON.stringify(request)
 
   useEffect(() => {
+    if (!enabled) {
+      setState({ data: undefined, isLoading: false, error: null })
+      return
+    }
     let active = true
     setState((prev) => ({ ...prev, isLoading: true, error: null }))
     bridge.objects.aggregate(JSON.parse(fingerprint) as BridgeAggregateRequest).then(
@@ -173,7 +192,7 @@ export function useObjectAggregate(request: BridgeAggregateRequest): UseAggregat
     return () => {
       active = false
     }
-  }, [bridge, fingerprint, reloadToken])
+  }, [bridge, fingerprint, reloadToken, enabled])
 
   const refetch = useCallback(() => setReloadToken((t) => t + 1), [])
   return { ...state, refetch }

@@ -71,6 +71,8 @@ export {
 // Re-export the protocol surface apps commonly need for typing.
 export type {
   BridgeAggregateOperation,
+  BridgeAggregateById,
+  BridgeAggregateByKey,
   BridgeAggregateRequest,
   BridgeAggregateResult,
   BridgeAttribute,

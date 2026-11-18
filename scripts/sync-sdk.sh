@@ -52,7 +52,6 @@ TARGETS=(
   "apps/gitlab"
   "apps/excalidraw"
   "apps/time-tracking"
-  "examples/time-reporting"
   "examples/employee-onboarding"
   "examples/ice-cream-survey"
 )
@@ -129,8 +128,11 @@ echo
 
 for target in "${TARGETS[@]}"; do
   dest="$REPO_ROOT/$target/src"
+  # A target that is not there is a mistake in this list, not something to skip: an app that was
+  # moved or renamed would otherwise stop being synced with nothing but a line in the output.
   if [[ ! -d "$dest" ]]; then
-    echo "$target — skipped (no src/)"
+    echo "  ✗ $target has no src/ — remove it from TARGETS, or fix its path"
+    drift=1
     continue
   fi
   echo "$target"

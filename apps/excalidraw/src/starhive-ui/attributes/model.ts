@@ -20,6 +20,11 @@ export type ReferenceView = {
   label: string
   typeId: string
   spaceId?: string
+  /**
+   * The reference value itself, the link from the source object, which reference properties hang off. Lets a host show
+   * the link's property values beside the target (STAR-3119).
+   */
+  valueId?: string
   /** The target's own picture. */
   avatarUrl?: string
   /**

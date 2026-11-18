@@ -18,18 +18,17 @@ when they copy it, so anything it needs, it declares.
 
 ## Examples
 
-| App                                                             | What it shows                                       |
-| --------------------------------------------------------------- | --------------------------------------------------- |
-| [`examples/time-reporting`](examples/time-reporting/)           | The reference app — covers all five extension slots |
-| [`examples/employee-onboarding`](examples/employee-onboarding/) | Workflows and transitions                           |
-| [`examples/ice-cream-survey`](examples/ice-cream-survey/)       | The small one, widget-first                         |
+| App                                                             | What it shows               |
+| --------------------------------------------------------------- | --------------------------- |
+| [`examples/employee-onboarding`](examples/employee-onboarding/) | Workflows and transitions   |
+| [`examples/ice-cream-survey`](examples/ice-cream-survey/)       | The small one, widget-first |
 
 Each has its own README with what it does, how to run it, and what it provisions on install.
 
 ## Working on an app
 
 ```sh
-cd examples/time-reporting
+cd examples/employee-onboarding
 npm install
 npm run dev        # http://localhost:4500
 npm run tscheck

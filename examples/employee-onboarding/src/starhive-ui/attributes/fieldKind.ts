@@ -76,6 +76,7 @@ const KIND_BY_TYPE_CODE: Record<string, FieldKind> = {
   INTEGER: 'number',
   DECIMAL: 'number',
   CALCULATED: 'readOnly', // a formula's result
+  ROLLUP: 'readOnly', // a total of one reference property, folded by the server
   RATING: 'rating',
 
   BOOLEAN: 'boolean',

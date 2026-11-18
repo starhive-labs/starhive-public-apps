@@ -159,6 +159,17 @@ export type StarhiveBridge = {
      * })
      * // { groups: { opened: 4, merged: 11, closed: 2 }, total: 17 }
      * ```
+     *
+     * A type an admin nominated through `scopes.read` has no manifest keys, so it is named by id —
+     * the type, and the attributes `useTypeById` reports for it:
+     *
+     * ```ts
+     * await starhive.objects.aggregate({
+     *   typeId: roomTypeId,
+     *   operation: 'count',
+     *   groupByAttributeId: buildingAttributeId,
+     * })
+     * ```
      */
     aggregate(request: BridgeAggregateRequest): Promise<BridgeAggregateResult>
   }
@@ -384,6 +395,68 @@ export function createBridge(options: CreateBridgeOptions = {}): StarhiveBridge 
     throw new StarhiveBridgeError(BridgeErrorCode.BadRequest, message)
   }
 
+  /**
+   * The type and attributes an aggregate is over, as ids — from manifest keys for one of the app's
+   * own types, as given for a type an admin nominated.
+   *
+   * The two forms are exclusive in the types, and checked again here, because a request does not
+   * always come from typed code: plain JavaScript, a value typed `any`, and `useObjectAggregate`'s
+   * JSON round trip all reach this unchecked. A request naming no type at all is what a
+   * `readTypeIds[0]` looks like before an admin has nominated anything, and saying so beats sending
+   * it down the key path to fail as `Unknown type key "undefined"`. A request mixing the two would
+   * otherwise quietly lose half of itself — a `groupBy` key beside a `typeId` is a breakdown that
+   * comes back as one total.
+   */
+  function aggregateTarget(
+    request: BridgeAggregateRequest,
+  ): Pick<AggregateWireArgs, 'typeId' | 'attributeId' | 'groupByAttributeId'> {
+    // An empty string is as good as absent: it is what an unset setting or a blank picker gives,
+    // and treating it as "given" would either send it to the host or call a request mixed.
+    const typeKey = given(request.typeKey)
+    const attribute = given(request.attribute)
+    const groupBy = given(request.groupBy)
+    const typeId = given(request.typeId)
+    const attributeId = given(request.attributeId)
+    const groupByAttributeId = given(request.groupByAttributeId)
+
+    const byKey = typeKey != null || attribute != null || groupBy != null
+    const byId = typeId != null || attributeId != null || groupByAttributeId != null
+    if (byKey && byId) {
+      raise(
+        'An aggregate names its type either by key (typeKey, attribute, groupBy) or by id ' +
+          '(typeId, attributeId, groupByAttributeId), not both',
+      )
+    }
+    const needsAttribute = request.operation !== 'count'
+
+    if (typeId != null) {
+      return {
+        typeId,
+        attributeId: needsAttribute
+          ? (attributeId ??
+            raise(`"${request.operation}" needs an attributeId of type "${typeId}"`))
+          : undefined,
+        groupByAttributeId,
+      }
+    }
+    if (typeKey != null) {
+      return {
+        typeId: resolveTypeKey(typeKey),
+        attributeId: needsAttribute
+          ? resolveAttributeKey(
+              attribute ?? raise(`"${request.operation}" needs an attribute of "${typeKey}"`),
+              typeKey,
+            )
+          : undefined,
+        groupByAttributeId: groupBy != null ? resolveAttributeKey(groupBy, typeKey) : undefined,
+      }
+    }
+    return raise(
+      'An aggregate needs a type: a typeKey for one of your own types, or a typeId for one an ' +
+        'admin nominated — which is empty until they have nominated one',
+    )
+  }
+
   function resolveTypeKey(typeKey: string): string {
     const map = getContext().typeKeyToId
     const typeId = map[typeKey]
@@ -439,26 +512,16 @@ export function createBridge(options: CreateBridgeOptions = {}): StarhiveBridge 
       update: (id, attributes, writeOptions) =>
         invoke('objects.update', { id, attributes, transitions: writeOptions?.transitions }),
       remove: (id) => invoke('objects.remove', { id }),
-      // Keys here, ids on the wire — resolved from the handshake maps, so an aggregate costs no type
-      // fetch. `deferResolve` for the same reason `create` uses it: resolution throws synchronously
-      // and no caller should have to handle both a throw and a rejection.
+      // Ids on the wire. Keys for the app's own types are resolved from the handshake maps, so an
+      // aggregate costs no type fetch; a nominated type has no keys and arrives as ids already.
+      // `deferResolve` for the same reason `create` uses it: resolution throws synchronously and no
+      // caller should have to handle both a throw and a rejection.
       aggregate: (request) =>
         deferResolve(() =>
           invoke('objects.aggregate', {
-            typeId: resolveTypeKey(request.typeKey),
+            ...aggregateTarget(request),
             where: request.where,
             operation: request.operation,
-            attributeId:
-              request.operation === 'count'
-                ? undefined
-                : resolveAttributeKey(
-                    request.attribute ??
-                      raise(`"${request.operation}" needs an attribute of "${request.typeKey}"`),
-                    request.typeKey,
-                  ),
-            groupByAttributeId: request.groupBy
-              ? resolveAttributeKey(request.groupBy, request.typeKey)
-              : undefined,
           }),
         ),
       query: (starql, queryOptions) =>
@@ -554,4 +617,12 @@ export function createBridge(options: CreateBridgeOptions = {}): StarhiveBridge 
   ready.catch(() => undefined)
 
   return bridge
+}
+
+/** What the host receives for an aggregate, whichever form the app's request took. */
+type AggregateWireArgs = BridgeArgs<'objects.aggregate'>[0]
+
+/** A string field of a request, or undefined when it is missing or empty. */
+function given(value: string | undefined | null): string | undefined {
+  return value == null || value === '' ? undefined : value
 }
