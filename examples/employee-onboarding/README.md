@@ -72,6 +72,7 @@ settings page, and they appear read-only under **Settings → Automations → Ma
 | Mark new tasks | a task is created | sets its Notes to "Waiting to be started" |
 | Tell the owner when a task is done | a task's Status changes to Done | emails the task's Owner, linking to the task |
 | Start overdue tasks | every five minutes | moves a task still in To do past its Due date to In progress |
+| Remind the owner the day before a task is due | a day before a task's Due date | emails the task's Owner, unless the task is Done |
 
 To try them after installing:
 
@@ -79,6 +80,11 @@ To try them after installing:
 2. **Give a task an Owner and move it to Done.** The owner gets an email.
 3. **Give a To do task a Due date in the past.** Within five minutes it moves to In progress. A real
    app would check hourly. The five minutes is only here so the demo is quick.
+4. **Give a task an Owner and a Due date two days from now.** The owner gets the reminder at midnight
+   UTC tonight, the start of the day before it is due. A Due date is a DATE, which counts from midnight
+   UTC, and `by: 1d` counts a day back from that. A Due date of tomorrow would have been due for a
+   reminder at midnight just gone, so it is too late and none is sent. Move the Due date and the
+   reminder moves with it. Mark the task Done first and no reminder is sent.
 
 A rule names everything by key (`{dueDate}`, `{state:taskStatus.todo}`, `{title}`), so renaming an
 attribute or a state in the workspace doesn't break it. The rules act on this app's own types only,

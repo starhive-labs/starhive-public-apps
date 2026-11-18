@@ -2,7 +2,7 @@ app:
   # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
   # via "Publish a new app" in the Starhive UI.
   key: com.starhive.apps.demo.onboarding
-  version: 1.5.0
+  version: 1.6.0
   description: Run structured employee onboarding in Starhive. Each task is a native object, so checklists, progress and reporting are just Starhive.
 
 # Where the single bundle mounts. Every module loads the same entry (`/`); the
@@ -90,8 +90,8 @@ scopes:
 # does not break a rule: `{dueDate}` and `{state:taskStatus.todo}` in a `where` are resolved for each
 # workspace, and `{title}` in an email becomes that task's title.
 #
-# The three together try every trigger and action there is: on create, on a change to a state, on a
-# schedule; updating an attribute, emailing a person, and moving along the workflow.
+# Together they try every trigger and action there is: on create, on a change to a state, on a
+# schedule, before a date; updating an attribute, emailing a person, and moving along the workflow.
 automations:
   # On create + update: every new task says where it came from, so a task the app made is told apart.
   - key: mark-new-tasks
@@ -127,6 +127,23 @@ automations:
     where: '@WorkflowStateId = {state:taskStatus.todo} and {dueDate} < now()'
     do:
       - transition: { attribute: status, from: todo, to: inProgress }
+
+  # Before a date + email: the owner is reminded the day before a task is due, unless it is already
+  # done. Once per task and due date: move the due date and the reminder moves with it; clear it and
+  # there is none. `where` is checked when the reminder comes due, not when the date was set. A DATE
+  # counts from midnight UTC, so `by: 1d` lands at midnight UTC the day before. Offsets are written
+  # `min`, `h` or `d` (never `m`, which StarQL in a `where` reads as months).
+  - key: remind-owner-before-due
+    name: Remind the owner the day before a task is due
+    reason: Emails the task's owner a day before an unfinished onboarding task is due.
+    type: onboardingTask
+    on: { before: { attribute: dueDate, by: 1d } }
+    where: '@WorkflowStateId != {state:taskStatus.done}'
+    do:
+      - email:
+          to: owner
+          subject: "Due tomorrow: {title}"
+          body: "The onboarding task {title} is due on {dueDate}. {{object.url}}"
 
 # Provisioned into the workspace on install. The app reads/writes these by the
 # attribute NAMES below (see src/onboarding.ts → ATTR).
