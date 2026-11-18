@@ -51,11 +51,12 @@ export function iconDisplayColor(color: string | undefined): string {
  * ignore the workspace's chosen colour — including in dark mode. Masking is what makes the tint mean
  * anything.
  *
- * The `?v=2` is the product's own workaround for a CORS error when moving from
- * `WebkitMaskBoxImage` to `WebkitMaskImage`; kept identical so both load the same cached asset.
+ * The `?v=3` is the product's own cache-buster (v=2 worked around a CORS error when moving from
+ * `WebkitMaskBoxImage` to `WebkitMaskImage`, v=3 retires copies cached without `Vary: Origin`);
+ * kept identical to TypeIcon so both load the same cached asset.
  */
 function TypeIconMask({ url, color, size }: { url: string; color?: string; size: number }) {
-  const masked = `url(${url}?v=2)`
+  const masked = `url(${url}?v=3)`
   return (
     <Box
       component="span"

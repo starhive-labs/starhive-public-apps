@@ -137,6 +137,7 @@ function renderOne(args: RenderArgs): ReactNode {
 
     case 'DECIMAL':
     case 'CALCULATED':
+    case 'ROLLUP':
       return (
         <p.Number
           value={value.value}

@@ -227,12 +227,16 @@ export type BridgeObjectV1 = {
 /** What an aggregation may ask for. `count` needs no attribute; the rest do. */
 export type BridgeAggregateOperation = 'count' | 'sum' | 'avg' | 'min' | 'max'
 
-export type BridgeAggregateRequest = {
-  /** The provisioned type to aggregate over. Required, exactly as it is for a query. */
-  typeKey: string
+type BridgeAggregateCommon = {
   /** A StarQL predicate, without `order by` — the same string a query takes. */
   where?: string
   operation: BridgeAggregateOperation
+}
+
+/** An aggregate over one of the app's own types, naming it and its attributes by manifest key. */
+export type BridgeAggregateByKey = BridgeAggregateCommon & {
+  /** The provisioned type to aggregate over. */
+  typeKey: string
   /**
    * The attribute to aggregate, by manifest key. Required for everything except `count`, which
    * counts objects and so has nothing to aggregate over.
@@ -245,7 +249,33 @@ export type BridgeAggregateRequest = {
    * where it goes; a number and a breakdown is what a dashboard is made of.
    */
   groupBy?: string
+  typeId?: never
+  attributeId?: never
+  groupByAttributeId?: never
 }
+
+/**
+ * An aggregate over a type an admin nominated through the manifest's `scopes.read` — the rooms or
+ * vehicles a booking app counts. The app did not declare that type, so it has no manifest keys for
+ * it or its attributes: both are named by id, the way `objects.query` takes a `typeId` and
+ * `useTypeById` reads the schema the ids come from.
+ *
+ * Read access is the host's to check, exactly as for a query — this only lets the SDK ask.
+ */
+export type BridgeAggregateById = BridgeAggregateCommon & {
+  /** The nominated type to aggregate over — one of the context's `readTypeIds`, or a subtype. */
+  typeId: string
+  /** The attribute to aggregate, by id. Required for everything except `count`. */
+  attributeId?: string
+  /** Split the answer by this attribute's value, by id. */
+  groupByAttributeId?: string
+  typeKey?: never
+  attribute?: never
+  groupBy?: never
+}
+
+/** Keys for the app's own types, ids for a type it was granted — never a mix of the two. */
+export type BridgeAggregateRequest = BridgeAggregateByKey | BridgeAggregateById
 
 export type BridgeAggregateResult = {
   /** The single figure, when nothing was grouped. */
@@ -586,7 +616,7 @@ export type BridgeMethodMap = {
     args: [{ starql: string; typeId?: string; offset?: number; limit?: number }]
     result: BridgeQueryResult
   }
-  /** The external systems this app declares, and whether an admin has connected each one. */
+  /** A number about many objects: always ids here, whichever form the app's request took. */
   'objects.aggregate': {
     args: [
       {
@@ -600,6 +630,7 @@ export type BridgeMethodMap = {
     ]
     result: BridgeAggregateResult
   }
+  /** The external systems this app declares, and whether an admin has connected each one. */
   'remote.list': { args: []; result: BridgeRemote[] }
   /**
    * Call one of them. The app names a remote its manifest declared and a path within it — never an

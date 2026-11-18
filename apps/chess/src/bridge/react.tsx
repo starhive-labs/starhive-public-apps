@@ -147,6 +147,9 @@ export type UseAggregateResult = {
  * // data?.groups → { opened: 4, merged: 11 }
  * ```
  *
+ * For a type an admin nominated through `scopes.read`, name it and its attributes by id instead:
+ * `useObjectAggregate({ typeId, operation: 'count', groupByAttributeId })`.
+ *
  * Prefer this over counting a query's rows: a query answers "how many" with `total`, but a breakdown
  * meant fetching every row and tallying it in the browser — bounded by the page size, and quietly
  * wrong past it.
