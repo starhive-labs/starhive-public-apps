@@ -2,7 +2,7 @@ app:
   # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
   # via "Publish a new app" in the Starhive UI.
   key: com.starhive.apps.demo.onboarding
-  version: 1.4.1
+  version: 1.5.0
   description: Run structured employee onboarding in Starhive. Each task is a native object, so checklists, progress and reporting are just Starhive.
 
 # Where the single bundle mounts. Every module loads the same entry (`/`); the
@@ -81,6 +81,53 @@ scopes:
     - config: newHireType
       reason: Reads the new hire a panel is opened beside, to check onboarding tasks belong to them.
 
+# Rules the app runs on its own, with nobody having it open. Starhive's automation engine runs them for
+# the app: they are installed with it, upgraded with it, turned off when it is uninstalled, and shown to
+# the admin before install, each by `name` with its `reason`. An admin can switch any one off on the app's
+# settings page, and sees them read-only under Settings -> Automations -> Managed by apps.
+#
+# Everything is named by key, never by display name, so an admin renaming "Due date" or "In progress"
+# does not break a rule: `{dueDate}` and `{state:taskStatus.todo}` in a `where` are resolved for each
+# workspace, and `{title}` in an email becomes that task's title.
+#
+# The three together try every trigger and action there is: on create, on a change to a state, on a
+# schedule; updating an attribute, emailing a person, and moving along the workflow.
+automations:
+  # On create + update: every new task says where it came from, so a task the app made is told apart.
+  - key: mark-new-tasks
+    name: Mark new tasks
+    reason: Notes on each new onboarding task that it is waiting to be started.
+    type: onboardingTask
+    on: { created: {} }
+    do:
+      - update: { notes: Waiting to be started }
+
+  # On a state change + email: the task's owner hears when it is done. Set an Owner on a task, move it
+  # to Done, and the owner gets the email.
+  - key: tell-owner-when-done
+    name: Tell the owner when a task is done
+    reason: Emails the task's owner when an onboarding task is completed.
+    type: onboardingTask
+    on: { updated: { attribute: status, to: done } }
+    do:
+      - email:
+          to: owner
+          subject: "Done: {title}"
+          body: "The onboarding task {title} is done. {{object.url}}"
+
+  # On a schedule + transition: a task still not started after its due date is moved to In progress,
+  # so it shows up as active rather than sitting unnoticed. Every five minutes so it is quick to see
+  # while trying the app; a real app would check hourly ("0 * * * ? *"). Moving the task out of To do
+  # is what stops the next run picking it up again.
+  - key: start-overdue-tasks
+    name: Start overdue tasks
+    reason: Moves a task that is past its due date and still not started to In progress, so it is not forgotten.
+    type: onboardingTask
+    on: { schedule: "0/5 * * * ? *" }
+    where: '@WorkflowStateId = {state:taskStatus.todo} and {dueDate} < now()'
+    do:
+      - transition: { attribute: status, from: todo, to: inProgress }
+
 # Provisioned into the workspace on install. The app reads/writes these by the
 # attribute NAMES below (see src/onboarding.ts → ATTR).
 data:
@@ -120,6 +167,8 @@ data:
         # A reference to the new-hire type — defaults to the app's `newHire` type, switchable in settings.
         - { key: newHire, name: New hire, type: REFERENCE, targetType: "${config.newHireType}", cardinality: one }
         - { key: notes,   name: Notes,    type: TEXT }
+        # Who is responsible for the task. The automations below email them when it is done.
+        - { key: owner,   name: Owner,    type: USER }
   # A sample hire + a standard onboarding checklist so the app shows content immediately. Tasks start
   # with no workflow status; the task list moves them (see src/StatusMenu.tsx) by naming a transition.
   seed:
