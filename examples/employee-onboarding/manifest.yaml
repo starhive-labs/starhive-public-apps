@@ -90,8 +90,9 @@ scopes:
 # does not break a rule: `{dueDate}` and `{state:taskStatus.todo}` in a `where` are resolved for each
 # workspace, and `{title}` in an email becomes that task's title.
 #
-# Together they try every trigger and action there is: on create, on a change to a state, on a
-# schedule, before a date; updating an attribute, emailing a person, and moving along the workflow.
+# Together they try every kind of trigger and action there is: on create, on a change to a state, on a
+# schedule, before a date (`after:` a date is the same, written `after: { attribute: ..., by: ... }`);
+# updating an attribute, emailing a person, and moving along the workflow.
 automations:
   # On create + update: every new task says where it came from, so a task the app made is told apart.
   - key: mark-new-tasks
@@ -133,16 +134,20 @@ automations:
   # there is none. `where` is checked when the reminder comes due, not when the date was set. A DATE
   # counts from midnight UTC, so `by: 1d` lands at midnight UTC the day before. Offsets are written
   # `min`, `h` or `d` (never `m`, which StarQL in a `where` reads as months).
+  #
+  # "Not done" is `is not endstate`, true for any state the workflow does not end in, and for a task with
+  # no status yet. StarQL compares `@WorkflowStateId` with `=` only, and has no `not`.
   - key: remind-owner-before-due
     name: Remind the owner the day before a task is due
     reason: Emails the task's owner a day before an unfinished onboarding task is due.
     type: onboardingTask
     on: { before: { attribute: dueDate, by: 1d } }
-    where: '@WorkflowStateId != {state:taskStatus.done}'
+    where: '{status} is not endstate'
     do:
       - email:
           to: owner
-          subject: "Due tomorrow: {title}"
+          # Not "tomorrow": midnight UTC is still the day before for anyone west of UTC
+          subject: "Due {dueDate}: {title}"
           body: "The onboarding task {title} is due on {dueDate}. {{object.url}}"
 
 # Provisioned into the workspace on install. The app reads/writes these by the

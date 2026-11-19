@@ -81,10 +81,12 @@ To try them after installing:
 3. **Give a To do task a Due date in the past.** Within five minutes it moves to In progress. A real
    app would check hourly. The five minutes is only here so the demo is quick.
 4. **Give a task an Owner and a Due date two days from now.** The owner gets the reminder at midnight
-   UTC tonight, the start of the day before it is due. A Due date is a DATE, which counts from midnight
-   UTC, and `by: 1d` counts a day back from that. A Due date of tomorrow would have been due for a
-   reminder at midnight just gone, so it is too late and none is sent. Move the Due date and the
-   reminder moves with it. Mark the task Done first and no reminder is sent.
+   UTC at the start of the day before it is due. A Due date is a DATE, which counts from midnight UTC,
+   and `by: 1d` counts a day back from that. So the reminder comes at the next midnight UTC when your
+   date and the UTC date are the same day, and a day later when they are not (east of UTC early in the
+   morning, west of UTC late in the evening). A Due date of tomorrow is usually too late: its reminder
+   was due at the midnight UTC just gone, and one more than 40 minutes late is not sent. Move the Due
+   date and the reminder moves with it. Mark the task Done first and no reminder is sent.
 
 A rule names everything by key (`{dueDate}`, `{state:taskStatus.todo}`, `{title}`), so renaming an
 attribute or a state in the workspace doesn't break it. The rules act on this app's own types only,
