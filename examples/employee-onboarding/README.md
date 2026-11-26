@@ -73,12 +73,13 @@ settings page, and they appear read-only under **Settings → Automations → Ma
 | Tell the owner when a task is done | a task's Status changes to Done | emails the task's Owner, linking to the task |
 | Start overdue tasks | every five minutes | moves a task still in To do past its Due date to In progress |
 | Remind the owner the day before a task is due | a day before a task's Due date | emails the task's Owner, unless the task is Done |
-| Note who finished a task | a task's Status changes to Done | leaves an internal note on the task naming its Owner |
+| Note the owner of a finished task | a task with an Owner changes to Done | leaves an internal note on the task naming its Owner |
 
 To try them after installing:
 
 1. **Create a task.** Its Notes read "Waiting to be started".
-2. **Give a task an Owner and move it to Done.** The owner gets an email.
+2. **Give a task an Owner, then Start it and Complete it.** The workflow goes To do → In progress →
+   Done, with no move straight to Done. Once it is Done, the owner gets an email.
 3. **Give a To do task a Due date in the past.** Within five minutes it moves to In progress. A real
    app would check hourly. The five minutes is only here so the demo is quick.
 4. **Give a task an Owner and a Due date two days from now.** The owner gets the reminder at midnight
@@ -88,11 +89,12 @@ To try them after installing:
    morning, west of UTC late in the evening). A Due date of tomorrow is usually too late: its reminder
    was due at the midnight UTC just gone, and one more than 40 minutes late is not sent. Move the Due
    date and the reminder moves with it. Mark the task Done first and no reminder is sent.
-5. **See a rule wait for the workspace.** *Note who finished a task* leaves an internal note, and a
-   type has internal notes only once an admin turns them on, on a plan that has them. Until then the
-   rule is left out and the rest of the app works: the app's page under **Settings → Apps** lists it as
-   not running, says why, and links to the Onboarding Task type's settings. Turn internal notes on there
-   and the rule starts by itself, with no upgrade or reinstall. Move a task to Done and the note appears.
+5. **See a rule wait for the workspace.** *Note the owner of a finished task* leaves an internal
+   note, and a type has internal notes only once an admin turns them on, on a plan that has them. Until
+   then the rule is left out and the rest of the app works: the app's page under **Settings → Apps**
+   lists it as not running, says why, and links to the Onboarding Task type's settings. Turn internal
+   notes on there and the rule starts by itself, with no upgrade or reinstall. Give a task an Owner,
+   Start it and Complete it, and the note appears.
 
 A rule names everything by key (`{dueDate}`, `{state:taskStatus.todo}`, `{title}`), so renaming an
 attribute or a state in the workspace doesn't break it. The rules act on this app's own types only,
