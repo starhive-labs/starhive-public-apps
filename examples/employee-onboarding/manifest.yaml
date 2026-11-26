@@ -2,7 +2,7 @@ app:
   # Globally-unique key in dot notation. name + vendor are NOT set here — they're supplied later
   # via "Publish a new app" in the Starhive UI.
   key: com.starhive.apps.demo.onboarding
-  version: 1.6.0
+  version: 1.7.0
   description: Run structured employee onboarding in Starhive. Each task is a native object, so checklists, progress and reporting are just Starhive.
 
 # Where the single bundle mounts. Every module loads the same entry (`/`); the
@@ -149,6 +149,19 @@ automations:
           # Not "tomorrow": midnight UTC is still the day before for anyone west of UTC
           subject: "Due {dueDate}: {title}"
           body: "The onboarding task {title} is due on {dueDate}. {{object.url}}"
+
+  # Internal note: the owner of a finished task is recorded on it, for the workspace's own users only.
+  # An internal note needs internal notes turned on for the type, on a plan that has them, and a
+  # manifest can't turn them on. Until an admin does, this rule is left out, with the rest of the app
+  # installed, and the app's settings page says why, with a link to the type's settings. Once they are
+  # on, the rule starts by itself: no upgrade or reinstall.
+  - key: note-when-done
+    name: Note who finished a task
+    reason: Leaves an internal note on an onboarding task when it is done, saying who owned it.
+    type: onboardingTask
+    on: { updated: { attribute: status, to: done } }
+    do:
+      - comment: { body: "Completed. Owner: {owner}.", visibility: internal }
 
 # Provisioned into the workspace on install. The app reads/writes these by the
 # attribute NAMES below (see src/onboarding.ts → ATTR).
